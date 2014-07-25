@@ -3,10 +3,14 @@ module Database.Alteryx(
   YxdbFile(..)
 ) where
 
+import Control.Applicative
+import Control.Monad (liftM, msum, replicateM)
 import Data.Binary
-import Data.ByteString
+import Data.Binary.Get
+import Data.Binary.Put
+import Data.ByteString as BS
+import Data.ByteString.Char8 as BSC
 import Data.Text
-import Data.Text.Binary
 
 data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex
 
@@ -17,7 +21,6 @@ dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
 data YxdbFile = YxdbFile {
-      copyright :: Text,
       header    :: Header,
       contents  :: ByteString
 } deriving (Eq, Show)
@@ -38,56 +41,63 @@ data Header = Header {
 
 instance Binary YxdbFile where
     put yxdbFile = do
-      put $ copyright yxdbFile
       put $ header yxdbFile
       put $ contents yxdbFile
 
     get = do
-      fCopyright <- get -- TODO: Ensure we only get the first line
       fHeader    <- get
       fContents  <- get
 
       return $ YxdbFile {
-        copyright = fCopyright,
         header    = fHeader,
         contents  = fContents
       }
 
+putFixedByteString :: Int -> ByteString -> Put
+putFixedByteString n bs =
+  if n /= BS.length bs
+  then error $ "Invalid ByteString length: " ++ (show $ BS.length bs)
+  else mapM_ putWord8 $ BS.unpack bs
+
+getFixedByteString :: Int -> Get ByteString
+getFixedByteString n = BS.pack <$> replicateM n getWord8
+ 
+
 instance Binary Header where
     put header = do
-      put $ description header
-      put $ fileId header
-      put $ creationDate header
-      put $ flags1 header
-      put $ flags2 header
-      put $ metaInfoLength header
-      put $ spatialIndexPos header
-      put $ recordBlockIndexPos header
-      put $ compressionVersion header
-      put $ metaInfoXml header
+      putFixedByteString 64 $ description header
+      putWord32le $ fileId header    
+      putWord32le $ creationDate header
+      putWord32le $ flags1 header
+      putWord32le $ flags2 header
+      putWord32le $ metaInfoLength header
+      putWord64le $ spatialIndexPos header
+      putWord64le $ recordBlockIndexPos header
+      putWord32le $ compressionVersion header
+      putFixedByteString ((2*) $ fromIntegral $ metaInfoLength header) $ metaInfoXml header
 
     get = do
-        fDescription         <- get -- TODO: This should be a fixed amount
-        fFileId              <- get
-        fCreationDate        <- get
-        fFlags1              <- get
-        fFlags2              <- get
-        fMetaInfoLength      <- get
-        fSpatialIndexPos     <- get
-        fRecordBlockIndexPos <- get
-        fCompressionVersion  <- get
-        fMetaInfoXml         <- get  -- TODO: This should be a fixed amount dependent on the metaInfoLength
+        fDescription         <- getFixedByteString 64
+        fFileId              <- getWord32le
+        fCreationDate        <- getWord32le
+        fFlags1              <- getWord32le
+        fFlags2              <- getWord32le
+        fMetaInfoLength      <- getWord32le
+        fSpatialIndexPos     <- getWord64le
+        fRecordBlockIndexPos <- getWord64le
+        fCompressionVersion  <- getWord32le
+        fMetaInfoXml         <- getFixedByteString $ fromIntegral $ fMetaInfoLength * 2
         return $ Header {
-            description = fDescription,
-            fileId = fFileId,
-            creationDate = fCreationDate,
-            flags1 = fFlags1,
-            flags2 = fFlags2,
-            metaInfoLength = fMetaInfoLength,
-            spatialIndexPos = fSpatialIndexPos,
+            description         = fDescription,
+            fileId              = fFileId,
+            creationDate        = fCreationDate,
+            flags1              = fFlags1,
+            flags2              = fFlags2,
+            metaInfoLength      = fMetaInfoLength,
+            spatialIndexPos     = fSpatialIndexPos,
             recordBlockIndexPos = fRecordBlockIndexPos,
-            compressionVersion = fCompressionVersion,
-            metaInfoXml = fMetaInfoXml
+            compressionVersion  = fCompressionVersion,
+            metaInfoXml         = fMetaInfoXml
         }
 
 -- parseYxdb :: Handle -> IO YxdbFile

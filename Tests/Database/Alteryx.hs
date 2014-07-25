@@ -5,7 +5,7 @@ import Database.Alteryx (Header(..), YxdbFile(..))
 import Prelude hiding (readFile)
 
 import Data.Binary
-import Data.ByteString
+import Data.ByteString as BS
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)
@@ -13,44 +13,39 @@ import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.QuickCheck
 import Test.QuickCheck.Instances
 
--- instance Arbitrary ByteString where
---   arbitrary = fmap pack arbitrary
-
 instance Arbitrary YxdbFile where
   arbitrary = do
-    fCopyright <- arbitrary
     fHeader <- arbitrary
     fContents <- arbitrary
 
     return $ YxdbFile {
-      copyright = fCopyright,
       header    = fHeader,
       contents  = fContents
     }
 
 instance Arbitrary Header where
   arbitrary = do
-    fDescription <- arbitrary
+    fDescription <- vector 64 :: Gen [Word8]
     fFileId <- arbitrary
     fCreationDate <- arbitrary
     fFlags1 <- arbitrary
     fFlags2 <- arbitrary
-    fMetaInfoLength <- arbitrary
+    fMetaInfoLength <- choose(0, 1000)
     fSpatialIndexPos <- arbitrary
     fRecordBlockIndexPos <- arbitrary
     fCompressionVersion <- arbitrary
-    fMetaInfoXml <- arbitrary
+    fMetaInfoXml <- vector (fromIntegral $ fMetaInfoLength * 2)
     return $ Header {
-      description = fDescription,
-      fileId = fFileId,
-      creationDate = fCreationDate,
-      flags1 = fFlags1,
-      flags2 = fFlags2,
-      metaInfoLength = fMetaInfoLength,
-      spatialIndexPos = fSpatialIndexPos,
-      recordBlockIndexPos = fRecordBlockIndexPos,
-      compressionVersion = fCompressionVersion,
-      metaInfoXml = fMetaInfoXml
+            description         = pack fDescription,
+            fileId              = fFileId,
+            creationDate        = fCreationDate,
+            flags1              = fFlags1,
+            flags2              = fFlags2,
+            metaInfoLength      = fMetaInfoLength,
+            spatialIndexPos     = fSpatialIndexPos,
+            recordBlockIndexPos = fRecordBlockIndexPos,
+            compressionVersion  = fCompressionVersion,
+            metaInfoXml         = pack fMetaInfoXml
     }
 
 exampleFilename :: String
@@ -59,11 +54,17 @@ exampleFilename = "small_module.yxdb"
 exampleContents :: ByteString
 exampleContents = unsafePerformIO $ readFile exampleFilename
 
-prop_HeaderGetAndPutAreInverses :: Header -> Bool
-prop_HeaderGetAndPutAreInverses x = (decode . encode) x == x
+assertEq :: (Eq a, Show a) => a -> a -> Property
+assertEq a b = let
+    aStr = show a
+    bStr = show b
+    in printTestCase ("\nA: " ++ aStr ++ "\nB: " ++ bStr) (a == b)
 
-prop_YxdbFileGetAndPutAreInverses :: YxdbFile -> Bool
-prop_YxdbFileGetAndPutAreInverses x = (decode . encode) x == x
+prop_HeaderGetAndPutAreInverses :: Header -> Property
+prop_HeaderGetAndPutAreInverses x = assertEq (decode $ encode x) x
+
+prop_YxdbFileGetAndPutAreInverses :: YxdbFile -> Property
+prop_YxdbFileGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
 yxdbTests =
     testGroup "YXDB" [
