@@ -1,4 +1,5 @@
 module Database.Alteryx(
+  numReservedSpaceBytes,
   Header(..),
   YxdbFile(..)
 ) where
@@ -10,24 +11,36 @@ import Data.Binary.Get
 import Data.Binary.Put
 import Data.ByteString as BS
 import Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Lazy as BSL
 import Data.Text
+
+import Foreign.Storable (sizeOf)
 
 data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex
 
 recordsPerBlock = 0x10000
 spatialIndexRecordBlockSize = 32
+headerPageSize = 512
+
+ -- Computed from many fields in the Header type
+headerSize =
+    64 +
+    sizeOf(undefined::Word32)*6 +
+    sizeOf(undefined::Word64)*2
+
+numReservedSpaceBytes = headerPageSize - headerSize
 
 dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
 data YxdbFile = YxdbFile {
       header    :: Header,
-      contents  :: ByteString
+      contents  :: BSL.ByteString
 } deriving (Eq, Show)
 
 -- As little parsing as possible is done here
 data Header = Header {
-      description :: ByteString,
+      description :: ByteString, -- 64 bytes
       fileId :: Word32,
       creationDate :: Word32, -- TODO: Confirm whether this is UTC or user's local time
       flags1 :: Word32,
@@ -36,17 +49,23 @@ data Header = Header {
       spatialIndexPos :: Word64,
       recordBlockIndexPos :: Word64,
       compressionVersion :: Word32,
+
+      reservedSpace :: ByteString,
       metaInfoXml :: ByteString
 } deriving (Eq, Show)
 
 instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
-      put $ contents yxdbFile
+      -- TODO: putFixedByteString takes a 32 bit, so this limits the size of possible files needlessly
+      -- TODO: toStrict forces the entire string, which is bad for performance
+      putFixedByteString
+        (fromIntegral $ BSL.length $ contents yxdbFile) $
+        BSL.toStrict $ contents yxdbFile
 
     get = do
       fHeader    <- get
-      fContents  <- get
+      fContents  <- getRemainingLazyByteString -- TODO: This function is expensive
 
       return $ YxdbFile {
         header    = fHeader,
@@ -62,7 +81,6 @@ putFixedByteString n bs =
 getFixedByteString :: Int -> Get ByteString
 getFixedByteString n = BS.pack <$> replicateM n getWord8
  
-
 instance Binary Header where
     put header = do
       putFixedByteString 64 $ description header
@@ -74,6 +92,7 @@ instance Binary Header where
       putWord64le $ spatialIndexPos header
       putWord64le $ recordBlockIndexPos header
       putWord32le $ compressionVersion header
+      putFixedByteString numReservedSpaceBytes $ reservedSpace header
       putFixedByteString ((2*) $ fromIntegral $ metaInfoLength header) $ metaInfoXml header
 
     get = do
@@ -86,6 +105,7 @@ instance Binary Header where
         fSpatialIndexPos     <- getWord64le
         fRecordBlockIndexPos <- getWord64le
         fCompressionVersion  <- getWord32le
+        fReservedSpace       <- getFixedByteString $ fromIntegral $ numReservedSpaceBytes
         fMetaInfoXml         <- getFixedByteString $ fromIntegral $ fMetaInfoLength * 2
         return $ Header {
             description         = fDescription,
@@ -97,6 +117,7 @@ instance Binary Header where
             spatialIndexPos     = fSpatialIndexPos,
             recordBlockIndexPos = fRecordBlockIndexPos,
             compressionVersion  = fCompressionVersion,
+            reservedSpace       = fReservedSpace,
             metaInfoXml         = fMetaInfoXml
         }
 

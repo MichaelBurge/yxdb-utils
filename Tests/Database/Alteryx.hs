@@ -1,6 +1,11 @@
 module Tests.Database.Alteryx (yxdbTests) where
 
-import Database.Alteryx (Header(..), YxdbFile(..))
+import Database.Alteryx
+  (
+    numReservedSpaceBytes,
+    Header(..),
+    YxdbFile(..)
+  )
 
 import Prelude hiding (readFile)
 
@@ -34,6 +39,7 @@ instance Arbitrary Header where
     fSpatialIndexPos <- arbitrary
     fRecordBlockIndexPos <- arbitrary
     fCompressionVersion <- arbitrary
+    fReservedSpace <- vector numReservedSpaceBytes
     fMetaInfoXml <- vector (fromIntegral $ fMetaInfoLength * 2)
     return $ Header {
             description         = pack fDescription,
@@ -45,6 +51,7 @@ instance Arbitrary Header where
             spatialIndexPos     = fSpatialIndexPos,
             recordBlockIndexPos = fRecordBlockIndexPos,
             compressionVersion  = fCompressionVersion,
+            reservedSpace       = pack fReservedSpace,
             metaInfoXml         = pack fMetaInfoXml
     }
 
