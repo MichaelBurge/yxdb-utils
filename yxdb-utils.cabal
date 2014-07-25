@@ -49,7 +49,8 @@ library
     base ==4.6.*,
     text,
     bytestring,
-    binary
+    binary,
+    text-binary
 
 test-suite yxdb-tests
   hs-source-dirs: src, .
@@ -59,11 +60,13 @@ test-suite yxdb-tests
     text,
     bytestring,
     binary,
+    text-binary,
     test-framework,
     test-framework-hunit,
     test-framework-quickcheck2,
     HUnit,
-    QuickCheck
+    QuickCheck,
+    quickcheck-instances
   main-is: Tests/Main.hs
   buildable: True
   hs-source-dirs: src

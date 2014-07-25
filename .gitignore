@@ -3,3 +3,5 @@ AlteryxRDataX
 *.yxdb
 *.gz
 dist/
+.cabal-sandbox/
+cabal.sandbox.config

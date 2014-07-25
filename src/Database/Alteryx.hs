@@ -1,10 +1,12 @@
 module Database.Alteryx(
-  Header(..)
+  Header(..),
+  YxdbFile(..)
 ) where
 
 import Data.Binary
 import Data.ByteString
 import Data.Text
+import Data.Text.Binary
 
 data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex
 
@@ -14,9 +16,11 @@ spatialIndexRecordBlockSize = 32
 dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
-data Copyright = Copyright {
-      copyright :: Text
-}
+data YxdbFile = YxdbFile {
+      copyright :: Text,
+      header    :: Header,
+      contents  :: ByteString
+} deriving (Eq, Show)
 
 -- As little parsing as possible is done here
 data Header = Header {
@@ -31,6 +35,23 @@ data Header = Header {
       compressionVersion :: Word32,
       metaInfoXml :: ByteString
 } deriving (Eq, Show)
+
+instance Binary YxdbFile where
+    put yxdbFile = do
+      put $ copyright yxdbFile
+      put $ header yxdbFile
+      put $ contents yxdbFile
+
+    get = do
+      fCopyright <- get -- TODO: Ensure we only get the first line
+      fHeader    <- get
+      fContents  <- get
+
+      return $ YxdbFile {
+        copyright = fCopyright,
+        header    = fHeader,
+        contents  = fContents
+      }
 
 instance Binary Header where
     put header = do
@@ -55,7 +76,7 @@ instance Binary Header where
         fSpatialIndexPos     <- get
         fRecordBlockIndexPos <- get
         fCompressionVersion  <- get
-        fMetaInfoXml         <- get  -- TODO: This should be a fixed amount
+        fMetaInfoXml         <- get  -- TODO: This should be a fixed amount dependent on the metaInfoLength
         return $ Header {
             description = fDescription,
             fileId = fFileId,
@@ -69,6 +90,10 @@ instance Binary Header where
             metaInfoXml = fMetaInfoXml
         }
 
+-- parseYxdb :: Handle -> IO YxdbFile
+-- parseYxdb handle = do
+--   fCopyright <- hGetLine handle
+  
 -- type XField = Field {
 --       name :: Text,
 --       source :: Text,

@@ -1,6 +1,6 @@
 module Tests.Database.Alteryx (yxdbTests) where
 
-import Database.Alteryx (Header(..))
+import Database.Alteryx (Header(..), YxdbFile(..))
 
 import Prelude hiding (readFile)
 
@@ -11,9 +11,22 @@ import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.QuickCheck
+import Test.QuickCheck.Instances
 
-instance Arbitrary ByteString where
-  arbitrary = fmap pack arbitrary
+-- instance Arbitrary ByteString where
+--   arbitrary = fmap pack arbitrary
+
+instance Arbitrary YxdbFile where
+  arbitrary = do
+    fCopyright <- arbitrary
+    fHeader <- arbitrary
+    fContents <- arbitrary
+
+    return $ YxdbFile {
+      copyright = fCopyright,
+      header    = fHeader,
+      contents  = fContents
+    }
 
 instance Arbitrary Header where
   arbitrary = do
@@ -46,13 +59,14 @@ exampleFilename = "small_module.yxdb"
 exampleContents :: ByteString
 exampleContents = unsafePerformIO $ readFile exampleFilename
 
-prop_getAndPutAreInverses :: Header -> Bool
-prop_getAndPutAreInverses x = (decode . encode) x == id x
+prop_HeaderGetAndPutAreInverses :: Header -> Bool
+prop_HeaderGetAndPutAreInverses x = (decode . encode) x == x
 
--- test_parseHeader = 
+prop_YxdbFileGetAndPutAreInverses :: YxdbFile -> Bool
+prop_YxdbFileGetAndPutAreInverses x = (decode . encode) x == x
 
 yxdbTests =
     testGroup "YXDB" [
-        testProperty "get & put inverses" prop_getAndPutAreInverses
---        testCase "Parsing header" test_parseHeader
+        testProperty "Header get & put inverses" prop_HeaderGetAndPutAreInverses,
+        testProperty "Yxdb get & put inverses" prop_YxdbFileGetAndPutAreInverses
     ]
