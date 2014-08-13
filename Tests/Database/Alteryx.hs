@@ -11,6 +11,10 @@ import Prelude hiding (readFile)
 
 import Data.Binary
 import Data.ByteString.Lazy as BS
+import Data.Encoding (decodeLazyByteString, Encoding)
+import Data.Encoding.UTF8
+import Data.Text.Lazy as T
+import Data.Text.Lazy.Encoding
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)
@@ -40,9 +44,11 @@ instance Arbitrary Header where
     fRecordBlockIndexPos <- arbitrary
     fCompressionVersion <- arbitrary
     fReservedSpace <- vector numReservedSpaceBytes
-    fMetaInfoXml <- vector (fromIntegral $ fMetaInfoLength * 2)
+    metaInfoXmlBS <- vectorOf (fromIntegral $ fMetaInfoLength) (choose(0, 127))
+    let fMetaInfoXml = T.pack $ decodeLazyByteString UTF8 $ BS.pack $ metaInfoXmlBS
+
     return $ Header {
-            description         = pack fDescription,
+            description         = BS.pack fDescription,
             fileId              = fFileId,
             creationDate        = fCreationDate,
             flags1              = fFlags1,
@@ -51,8 +57,8 @@ instance Arbitrary Header where
             spatialIndexPos     = fSpatialIndexPos,
             recordBlockIndexPos = fRecordBlockIndexPos,
             compressionVersion  = fCompressionVersion,
-            reservedSpace       = pack fReservedSpace,
-            metaInfoXml         = pack fMetaInfoXml
+            reservedSpace       = BS.pack fReservedSpace,
+            metaInfoXml         = fMetaInfoXml
     }
 
 exampleFilename :: String

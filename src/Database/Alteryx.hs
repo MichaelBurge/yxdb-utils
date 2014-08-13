@@ -76,7 +76,11 @@ putFixedByteString :: Int -> ByteString -> Put
 putFixedByteString n bs =
     let len = fromIntegral $ BS.length bs
     in if n /= len
-       then error $ "Invalid ByteString length: " ++ (show $ len)
+       then error $
+                "Invalid ByteString length: " ++
+                (show $ len) ++
+                "; Expected: " ++
+                (show $ n)
        else mapM_ putWord8 $ BS.unpack bs
 
 getFixedByteString :: Int -> Get ByteString
