@@ -12,7 +12,8 @@ import Data.Binary.Put
 import Data.ByteString.Lazy as BS
 import Data.ByteString.Lazy.Char8 as BSC
 import Data.Int
-import Data.Text
+import Data.Text.Lazy
+import Data.Text.Lazy.Encoding
 
 import Foreign.Storable (sizeOf)
 
@@ -38,7 +39,6 @@ data YxdbFile = YxdbFile {
       contents  :: ByteString
 } deriving (Eq, Show)
 
--- As little parsing as possible is done here
 data Header = Header {
       description :: ByteString, -- 64 bytes
       fileId :: Word32,
@@ -51,7 +51,7 @@ data Header = Header {
       compressionVersion :: Word32,
 
       reservedSpace :: ByteString,
-      metaInfoXml :: ByteString
+      metaInfoXml :: Text
 } deriving (Eq, Show)
 
 instance Binary YxdbFile where
@@ -94,7 +94,8 @@ instance Binary Header where
       putWord64le $ recordBlockIndexPos header
       putWord32le $ compressionVersion header
       putFixedByteString numReservedSpaceBytes $ reservedSpace header
-      putFixedByteString ((2*) $ fromIntegral $ metaInfoLength header) $ metaInfoXml header
+      let numHeaderBytes = (2*) $ fromIntegral $ metaInfoLength header
+      putFixedByteString numHeaderBytes $ encodeUtf16LE $ metaInfoXml header
 
     get = do
         fDescription         <- getFixedByteString 64
@@ -107,7 +108,7 @@ instance Binary Header where
         fRecordBlockIndexPos <- getWord64le
         fCompressionVersion  <- getWord32le
         fReservedSpace       <- getFixedByteString $ fromIntegral $ numReservedSpaceBytes
-        fMetaInfoXml         <- getFixedByteString $ fromIntegral $ fMetaInfoLength * 2
+        fMetaInfoXml         <- return . decodeUtf16LE =<< (getFixedByteString $ fromIntegral $ fMetaInfoLength * 2)
         return $ Header {
             description         = fDescription,
             fileId              = fFileId,
