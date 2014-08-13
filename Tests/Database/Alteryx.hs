@@ -10,7 +10,7 @@ import Database.Alteryx
 import Prelude hiding (readFile)
 
 import Data.Binary
-import Data.ByteString as BS
+import Data.ByteString.Lazy as BS
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)

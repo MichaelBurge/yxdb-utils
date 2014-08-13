@@ -9,9 +9,9 @@ import Control.Monad (liftM, msum, replicateM)
 import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
-import Data.ByteString as BS
-import Data.ByteString.Char8 as BSC
-import qualified Data.ByteString.Lazy as BSL
+import Data.ByteString.Lazy as BS
+import Data.ByteString.Lazy.Char8 as BSC
+import Data.Int
 import Data.Text
 
 import Foreign.Storable (sizeOf)
@@ -35,7 +35,7 @@ dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
 data YxdbFile = YxdbFile {
       header    :: Header,
-      contents  :: BSL.ByteString
+      contents  :: ByteString
 } deriving (Eq, Show)
 
 -- As little parsing as possible is done here
@@ -60,8 +60,8 @@ instance Binary YxdbFile where
       -- TODO: putFixedByteString takes a 32 bit, so this limits the size of possible files needlessly
       -- TODO: toStrict forces the entire string, which is bad for performance
       putFixedByteString
-        (fromIntegral $ BSL.length $ contents yxdbFile) $
-        BSL.toStrict $ contents yxdbFile
+        (fromIntegral $ BS.length $ contents yxdbFile) $
+        contents yxdbFile
 
     get = do
       fHeader    <- get
@@ -74,17 +74,18 @@ instance Binary YxdbFile where
 
 putFixedByteString :: Int -> ByteString -> Put
 putFixedByteString n bs =
-  if n /= BS.length bs
-  then error $ "Invalid ByteString length: " ++ (show $ BS.length bs)
-  else mapM_ putWord8 $ BS.unpack bs
+    let len = fromIntegral $ BS.length bs
+    in if n /= len
+       then error $ "Invalid ByteString length: " ++ (show $ len)
+       else mapM_ putWord8 $ BS.unpack bs
 
 getFixedByteString :: Int -> Get ByteString
 getFixedByteString n = BS.pack <$> replicateM n getWord8
- 
+
 instance Binary Header where
     put header = do
       putFixedByteString 64 $ description header
-      putWord32le $ fileId header    
+      putWord32le $ fileId header
       putWord32le $ creationDate header
       putWord32le $ flags1 header
       putWord32le $ flags2 header
@@ -121,10 +122,13 @@ instance Binary Header where
             metaInfoXml         = fMetaInfoXml
         }
 
+parseContents :: YxdbFile -> ByteString
+parseContents yxdb = contents yxdb
+
 -- parseYxdb :: Handle -> IO YxdbFile
 -- parseYxdb handle = do
 --   fCopyright <- hGetLine handle
-  
+
 -- type XField = Field {
 --       name :: Text,
 --       source :: Text,
