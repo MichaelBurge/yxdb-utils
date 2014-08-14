@@ -4,6 +4,7 @@ module Database.Alteryx(
   YxdbFile(..)
 ) where
 
+import Codec.Compression.LZF.ByteString (decompressLazyByteString, compressLazyByteString)
 import Control.Applicative
 import Control.Monad (liftM, msum, replicateM)
 import Data.Binary
@@ -12,8 +13,9 @@ import Data.Binary.Put
 import Data.ByteString.Lazy as BS
 import Data.ByteString.Lazy.Char8 as BSC
 import Data.Int
-import Data.Text.Lazy
+import Data.Text.Lazy as T
 import Data.Text.Lazy.Encoding
+import System.IO.Unsafe (unsafePerformIO)
 
 import Foreign.Storable (sizeOf)
 
@@ -57,15 +59,12 @@ data Header = Header {
 instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
-      -- TODO: putFixedByteString takes a 32 bit, so this limits the size of possible files needlessly
-      -- TODO: toStrict forces the entire string, which is bad for performance
-      putFixedByteString
-        (fromIntegral $ BS.length $ contents yxdbFile) $
-        contents yxdbFile
+      put $ unsafePerformIO $ compressLazyByteString $ contents yxdbFile
 
     get = do
       fHeader    <- get
-      fContents  <- getRemainingLazyByteString -- TODO: This function is expensive
+      compressedBS <- getRemainingLazyByteString
+      let fContents = unsafePerformIO $ decompressLazyByteString $ compressedBS
 
       return $ YxdbFile {
         header    = fHeader,
