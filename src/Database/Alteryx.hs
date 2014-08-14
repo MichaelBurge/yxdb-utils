@@ -1,20 +1,24 @@
 module Database.Alteryx(
   numReservedSpaceBytes,
   Header(..),
+  Content(..),
   YxdbFile(..)
 ) where
 
-import Codec.Compression.LZF.ByteString (decompressLazyByteString, compressLazyByteString)
+import Codec.Compression.LZF.ByteString (decompressByteStringUnsafe, compressByteString)
 import Control.Applicative
 import Control.Monad (liftM, msum, replicateM)
 import Data.Binary
-import Data.Binary.Get
-import Data.Binary.Put
-import Data.ByteString.Lazy as BS
+import Data.Binary.Get (getByteString, getWord32le, getWord64le, isEmpty, Get(..))
+import Data.Binary.Put (putWord32le, putWord64le, flush, Put())
+import Data.Bits
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Lazy.Char8 as BSC
 import Data.Int
-import Data.Text.Lazy as T
-import Data.Text.Lazy.Encoding
+import Data.Maybe (isJust)
+import Data.Text as T
+import Data.Text.Encoding
 import System.IO.Unsafe (unsafePerformIO)
 
 import Foreign.Storable (sizeOf)
@@ -38,11 +42,11 @@ dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
 data YxdbFile = YxdbFile {
       header    :: Header,
-      contents  :: ByteString
+      contents  :: Content
 } deriving (Eq, Show)
 
 data Header = Header {
-      description :: ByteString, -- 64 bytes
+      description :: BS.ByteString, -- 64 bytes
       fileId :: Word32,
       creationDate :: Word32, -- TODO: Confirm whether this is UTC or user's local time
       flags1 :: Word32,
@@ -52,26 +56,27 @@ data Header = Header {
       recordBlockIndexPos :: Word64,
       compressionVersion :: Word32,
 
-      reservedSpace :: ByteString,
+      reservedSpace :: BS.ByteString,
       metaInfoXml :: Text
 } deriving (Eq, Show)
+
+newtype Content = Content BSL.ByteString deriving (Eq, Show)
 
 instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
-      put $ unsafePerformIO $ compressLazyByteString $ contents yxdbFile
+      put $ contents yxdbFile
 
     get = do
-      fHeader    <- get
-      compressedBS <- getRemainingLazyByteString
-      let fContents = unsafePerformIO $ decompressLazyByteString $ compressedBS
+      fHeader   <- get
+      fContents <- get
 
       return $ YxdbFile {
         header    = fHeader,
         contents  = fContents
       }
 
-putFixedByteString :: Int -> ByteString -> Put
+putFixedByteString :: Int -> BS.ByteString -> Put
 putFixedByteString n bs =
     let len = fromIntegral $ BS.length bs
     in if n /= len
@@ -82,8 +87,54 @@ putFixedByteString n bs =
                 (show $ n)
        else mapM_ putWord8 $ BS.unpack bs
 
-getFixedByteString :: Int -> Get ByteString
-getFixedByteString n = BS.pack <$> replicateM n getWord8
+instance Binary Content where
+    get = do
+      chunks <- getContentChunks
+      return $ Content $ BSL.fromChunks chunks
+    put (Content content) = putContentChunks $ BSL.toChunks content
+
+getContentChunks :: Get [BS.ByteString]
+getContentChunks = do
+  done <- isEmpty
+  if (done)
+     then return $ []
+     else do
+       chunk <- getContentChunk
+       remainingChunks <- getContentChunks
+       return $ chunk:remainingChunks
+
+putContentChunks :: [BS.ByteString] -> Put
+putContentChunks [] = flush
+putContentChunks (x:xs) = do
+  putContentChunk x
+  putContentChunks xs
+
+getContentChunk :: Get BS.ByteString
+getContentChunk = do
+  writtenSize <- getWord32le
+  let compressionBitIndex = 31
+  let isCompressed = not $ testBit writtenSize compressionBitIndex
+  let size = clearBit writtenSize compressionBitIndex
+
+  bs <- getByteString $ fromIntegral size
+  let chunk = if isCompressed
+              then decompressByteStringUnsafe bs
+              else bs
+  return chunk
+
+putContentChunk :: BS.ByteString -> Put
+putContentChunk bs = do
+  let compressionBitIndex = 31
+  let compressedChunk = compressByteString bs
+  let chunkToWrite = case compressedChunk of
+                       Nothing -> bs
+                       Just x  -> x
+  let size = BS.length chunkToWrite
+  let writtenSize = if isJust compressedChunk
+                    then size
+                    else setBit size compressionBitIndex
+  putWord32le $ fromIntegral writtenSize
+  putFixedByteString size chunkToWrite
 
 instance Binary Header where
     put header = do
@@ -101,7 +152,7 @@ instance Binary Header where
       putFixedByteString numHeaderBytes $ encodeUtf16LE $ metaInfoXml header
 
     get = do
-        fDescription         <- getFixedByteString 64
+        fDescription         <- getByteString 64
         fFileId              <- getWord32le
         fCreationDate        <- getWord32le
         fFlags1              <- getWord32le
@@ -110,8 +161,8 @@ instance Binary Header where
         fSpatialIndexPos     <- getWord64le
         fRecordBlockIndexPos <- getWord64le
         fCompressionVersion  <- getWord32le
-        fReservedSpace       <- getFixedByteString $ fromIntegral $ numReservedSpaceBytes
-        fMetaInfoXml         <- return . decodeUtf16LE =<< (getFixedByteString $ fromIntegral $ fMetaInfoLength * 2)
+        fReservedSpace       <- getByteString $ fromIntegral numReservedSpaceBytes
+        fMetaInfoXml         <- decodeUtf16LE <$> (getByteString $ fromIntegral $ fMetaInfoLength * 2)
         return $ Header {
             description         = fDescription,
             fileId              = fFileId,
@@ -125,9 +176,6 @@ instance Binary Header where
             reservedSpace       = fReservedSpace,
             metaInfoXml         = fMetaInfoXml
         }
-
-parseContents :: YxdbFile -> ByteString
-parseContents yxdb = contents yxdb
 
 -- parseYxdb :: Handle -> IO YxdbFile
 -- parseYxdb handle = do

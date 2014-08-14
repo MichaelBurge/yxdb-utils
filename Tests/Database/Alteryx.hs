@@ -4,17 +4,19 @@ import Database.Alteryx
   (
     numReservedSpaceBytes,
     Header(..),
+    Content(..),
     YxdbFile(..)
   )
 
 import Prelude hiding (readFile)
 
 import Data.Binary
-import Data.ByteString.Lazy as BS
+import Data.ByteString as BS
+import Data.ByteString.Lazy as BSL
 import Data.Encoding (decodeLazyByteString, Encoding)
 import Data.Encoding.UTF8
-import Data.Text.Lazy as T
-import Data.Text.Lazy.Encoding
+import Data.Text as T
+import Data.Text.Encoding
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)
@@ -45,7 +47,7 @@ instance Arbitrary Header where
     fCompressionVersion <- arbitrary
     fReservedSpace <- vector numReservedSpaceBytes
     metaInfoXmlBS <- vectorOf (fromIntegral $ fMetaInfoLength) (choose(0, 127))
-    let fMetaInfoXml = T.pack $ decodeLazyByteString UTF8 $ BS.pack $ metaInfoXmlBS
+    let fMetaInfoXml = T.pack $ decodeLazyByteString UTF8 $ BSL.pack $ metaInfoXmlBS
 
     return $ Header {
             description         = BS.pack fDescription,
@@ -61,11 +63,16 @@ instance Arbitrary Header where
             metaInfoXml         = fMetaInfoXml
     }
 
+instance Arbitrary Content where
+    arbitrary = do
+      fContent <- arbitrary
+      return $ Content fContent
+
 exampleFilename :: String
 exampleFilename = "small_module.yxdb"
 
-exampleContents :: ByteString
-exampleContents = unsafePerformIO $ readFile exampleFilename
+exampleContents :: BSL.ByteString
+exampleContents = unsafePerformIO $ BSL.readFile exampleFilename
 
 assertEq :: (Eq a, Show a) => a -> a -> Property
 assertEq a b = let

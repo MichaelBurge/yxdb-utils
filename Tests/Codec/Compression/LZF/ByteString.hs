@@ -2,10 +2,10 @@ module Tests.Codec.Compression.LZF.ByteString (lzfByteStringTests) where
 
 import Codec.Compression.LZF.ByteString
     (
-     compressByteString,
-     compressLazyByteString,
-     decompressByteString,
-     decompressLazyByteString
+     compressByteStringUnsafe,
+     compressLazyByteStringUnsafe,
+     decompressByteStringUnsafe,
+     decompressLazyByteStringUnsafe
     )
 
 import qualified Data.ByteString as BS
@@ -14,20 +14,18 @@ import Test.Framework
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.QuickCheck
 import Test.QuickCheck.Instances
-import Test.QuickCheck.Monadic (assert, monadicIO, run)
+import Test.QuickCheck.Monadic (assert, monadic, run)
 
-_compare :: Eq t => (t -> IO t) -> (t -> IO t) -> t -> Property
-_compare a b x = monadicIO $ do
-    y <- run $ b x
-    x' <- run $ a y
-    assert $ x == x'
+_compare :: Eq t => (t -> t) -> (t -> t) -> t -> Property
+_compare a b x = property $ x == (a $ b x)
 
 prop_DecompressCompressInverses :: BS.ByteString -> Property
-prop_DecompressCompressInverses x = _compare decompressByteString compressByteString x
+prop_DecompressCompressInverses x =
+    _compare decompressByteStringUnsafe compressByteStringUnsafe x
 
 prop_LazyDecompressCompressInverses :: BSL.ByteString -> Property
 prop_LazyDecompressCompressInverses x =
-    _compare decompressLazyByteString compressLazyByteString x
+    _compare decompressLazyByteStringUnsafe compressLazyByteStringUnsafe x
 
 lzfByteStringTests =
     testGroup "Codec.Compression.LZF.ByteString" [
