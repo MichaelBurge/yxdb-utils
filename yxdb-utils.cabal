@@ -49,7 +49,7 @@ library
     base ==4.*,
     text,
     bytestring,
-    binary,
+    binary >0.7.2,
     text-binary,
     Codec-Compression-LZF,
     encoding

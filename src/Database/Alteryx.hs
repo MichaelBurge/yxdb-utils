@@ -16,7 +16,9 @@ import Data.Binary.Get
      getWord32le,
      getWord64le,
      isEmpty,
+     isolate,
      Get(..),
+     label,
      remaining,
      runGet
     )
@@ -78,13 +80,10 @@ instance Binary YxdbFile where
       put $ contents yxdbFile
 
     get = do
-      headerBS <- getByteString headerPageSize
-      let fHeader = runGet (get :: Get Header) $ BSL.fromChunks [ headerBS ]
+      fHeader <- label "Header" $ isolate headerPageSize get
+      fMetadata <- label "Metadata" $ isolate (fromIntegral $ 2 * (metaInfoLength fHeader)) $ get
 
-      metadataBS <- getByteString $ fromIntegral $ (metaInfoLength fHeader) * 2
-      let fMetadata = runGet (get :: Get Metadata) $ BSL.fromChunks [ metadataBS ]
-
-      fContents <- get
+      fContents <- label "Contents" get
 
       return $ YxdbFile {
         header    = fHeader,
@@ -164,16 +163,16 @@ instance Binary Header where
       putByteString $ reservedSpace header
 
     get = do
-        fDescription         <- getByteString 64
-        fFileId              <- getWord32le
-        fCreationDate        <- getWord32le
-        fFlags1              <- getWord32le
-        fFlags2              <- getWord32le
-        fMetaInfoLength      <- getWord32le
-        fSpatialIndexPos     <- getWord64le
-        fRecordBlockIndexPos <- getWord64le
-        fCompressionVersion  <- getWord32le
-        fReservedSpace       <- BS.concat . BSL.toChunks <$> getRemainingLazyByteString
+        fDescription         <- label "Description" $       getByteString 64
+        fFileId              <- label "FileId"              getWord32le
+        fCreationDate        <- label "Creation Date"       getWord32le
+        fFlags1              <- label "Flags 1"             getWord32le
+        fFlags2              <- label "Flags 2"             getWord32le
+        fMetaInfoLength      <- label "Metadata Length"     getWord32le
+        fSpatialIndexPos     <- label "Spatial Index"       getWord64le
+        fRecordBlockIndexPos <- label "Record Block"        getWord64le
+        fCompressionVersion  <- label "Compression Version" getWord32le
+        fReservedSpace       <- label "Reserved Space" $ (BS.concat . BSL.toChunks <$> getRemainingLazyByteString)
 
         return $ Header {
             description         = fDescription,
