@@ -1,7 +1,7 @@
 module Database.Alteryx(
-  numReservedSpaceBytes,
   Header(..),
   Content(..),
+  Metadata(..),
   YxdbFile(..)
 ) where
 
@@ -9,8 +9,25 @@ import Codec.Compression.LZF.ByteString (decompressByteStringUnsafe, compressByt
 import Control.Applicative
 import Control.Monad (liftM, msum, replicateM)
 import Data.Binary
-import Data.Binary.Get (getByteString, getWord32le, getWord64le, isEmpty, Get(..))
-import Data.Binary.Put (putWord32le, putWord64le, flush, Put())
+import Data.Binary.Get
+    (
+     getByteString,
+     getRemainingLazyByteString,
+     getWord32le,
+     getWord64le,
+     isEmpty,
+     Get(..),
+     remaining,
+     runGet
+    )
+import Data.Binary.Put
+    (
+     putByteString,
+     putWord32le,
+     putWord64le,
+     flush,
+     Put(..)
+    )
 import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -29,20 +46,13 @@ recordsPerBlock = 0x10000
 spatialIndexRecordBlockSize = 32
 headerPageSize = 512
 
- -- Computed from many fields in the Header type
-headerSize =
-    64 +
-    sizeOf(undefined::Word32)*6 +
-    sizeOf(undefined::Word64)*2
-
-numReservedSpaceBytes = headerPageSize - headerSize
-
 dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
 data YxdbFile = YxdbFile {
-      header    :: Header,
-      contents  :: Content
+      header   :: Header,
+      metadata :: Metadata,
+      contents :: Content
 } deriving (Eq, Show)
 
 data Header = Header {
@@ -55,37 +65,41 @@ data Header = Header {
       spatialIndexPos :: Word64,
       recordBlockIndexPos :: Word64,
       compressionVersion :: Word32,
-
-      reservedSpace :: BS.ByteString,
-      metaInfoXml :: Text
+      reservedSpace :: BS.ByteString
 } deriving (Eq, Show)
 
+newtype Metadata = Metadata Text deriving (Eq, Show)
 newtype Content = Content BSL.ByteString deriving (Eq, Show)
 
 instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
+      put $ metadata yxdbFile
       put $ contents yxdbFile
 
     get = do
-      fHeader   <- get
+      headerBS <- getByteString headerPageSize
+      let fHeader = runGet (get :: Get Header) $ BSL.fromChunks [ headerBS ]
+
+      metadataBS <- getByteString $ fromIntegral $ (metaInfoLength fHeader) * 2
+      let fMetadata = runGet (get :: Get Metadata) $ BSL.fromChunks [ metadataBS ]
+
       fContents <- get
 
       return $ YxdbFile {
         header    = fHeader,
+        metadata  = fMetadata,
         contents  = fContents
       }
 
-putFixedByteString :: Int -> BS.ByteString -> Put
-putFixedByteString n bs =
-    let len = fromIntegral $ BS.length bs
-    in if n /= len
-       then error $
-                "Invalid ByteString length: " ++
-                (show $ len) ++
-                "; Expected: " ++
-                (show $ n)
-       else mapM_ putWord8 $ BS.unpack bs
+instance Binary Metadata where
+    put (Metadata metadata) = do
+      putByteString $ encodeUtf16LE metadata
+
+    get = do
+      metadataBS <- BS.concat . BSL.toChunks <$> getRemainingLazyByteString
+      let metadata = decodeUtf16LE metadataBS
+      return $ Metadata metadata
 
 instance Binary Content where
     get = do
@@ -134,11 +148,11 @@ putContentChunk bs = do
                     then size
                     else setBit size compressionBitIndex
   putWord32le $ fromIntegral writtenSize
-  putFixedByteString size chunkToWrite
+  putByteString chunkToWrite
 
 instance Binary Header where
     put header = do
-      putFixedByteString 64 $ description header
+      putByteString $ description header
       putWord32le $ fileId header
       putWord32le $ creationDate header
       putWord32le $ flags1 header
@@ -147,9 +161,7 @@ instance Binary Header where
       putWord64le $ spatialIndexPos header
       putWord64le $ recordBlockIndexPos header
       putWord32le $ compressionVersion header
-      putFixedByteString numReservedSpaceBytes $ reservedSpace header
-      let numHeaderBytes = (2*) $ fromIntegral $ metaInfoLength header
-      putFixedByteString numHeaderBytes $ encodeUtf16LE $ metaInfoXml header
+      putByteString $ reservedSpace header
 
     get = do
         fDescription         <- getByteString 64
@@ -161,8 +173,8 @@ instance Binary Header where
         fSpatialIndexPos     <- getWord64le
         fRecordBlockIndexPos <- getWord64le
         fCompressionVersion  <- getWord32le
-        fReservedSpace       <- getByteString $ fromIntegral numReservedSpaceBytes
-        fMetaInfoXml         <- decodeUtf16LE <$> (getByteString $ fromIntegral $ fMetaInfoLength * 2)
+        fReservedSpace       <- BS.concat . BSL.toChunks <$> getRemainingLazyByteString
+
         return $ Header {
             description         = fDescription,
             fileId              = fFileId,
@@ -173,8 +185,7 @@ instance Binary Header where
             spatialIndexPos     = fSpatialIndexPos,
             recordBlockIndexPos = fRecordBlockIndexPos,
             compressionVersion  = fCompressionVersion,
-            reservedSpace       = fReservedSpace,
-            metaInfoXml         = fMetaInfoXml
+            reservedSpace       = fReservedSpace
         }
 
 -- parseYxdb :: Handle -> IO YxdbFile

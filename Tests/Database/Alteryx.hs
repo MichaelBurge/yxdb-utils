@@ -2,9 +2,9 @@ module Tests.Database.Alteryx (yxdbTests) where
 
 import Database.Alteryx
   (
-    numReservedSpaceBytes,
     Header(..),
     Content(..),
+    Metadata(..),
     YxdbFile(..)
   )
 
@@ -29,9 +29,13 @@ instance Arbitrary YxdbFile where
     fHeader <- arbitrary
     fContents <- arbitrary
 
+    metaInfoXmlBS <- vectorOf (fromIntegral $ metaInfoLength fHeader) (choose(0, 127))
+    let fMetaInfoXml = Metadata $ T.pack $ decodeLazyByteString UTF8 $ BSL.pack $ metaInfoXmlBS
+
     return $ YxdbFile {
-      header    = fHeader,
-      contents  = fContents
+      header   = fHeader,
+      contents = fContents,
+      metadata = fMetaInfoXml
     }
 
 instance Arbitrary Header where
@@ -45,9 +49,7 @@ instance Arbitrary Header where
     fSpatialIndexPos <- arbitrary
     fRecordBlockIndexPos <- arbitrary
     fCompressionVersion <- arbitrary
-    fReservedSpace <- vector numReservedSpaceBytes
-    metaInfoXmlBS <- vectorOf (fromIntegral $ fMetaInfoLength) (choose(0, 127))
-    let fMetaInfoXml = T.pack $ decodeLazyByteString UTF8 $ BSL.pack $ metaInfoXmlBS
+    fReservedSpace <- vector (512 - 64 - (4 * 6) - (8 * 2)) :: Gen [Word8]
 
     return $ Header {
             description         = BS.pack fDescription,
@@ -59,8 +61,7 @@ instance Arbitrary Header where
             spatialIndexPos     = fSpatialIndexPos,
             recordBlockIndexPos = fRecordBlockIndexPos,
             compressionVersion  = fCompressionVersion,
-            reservedSpace       = BS.pack fReservedSpace,
-            metaInfoXml         = fMetaInfoXml
+            reservedSpace       = BS.pack fReservedSpace
     }
 
 instance Arbitrary Content where
