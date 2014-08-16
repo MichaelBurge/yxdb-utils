@@ -52,7 +52,9 @@ library
     binary >0.7.2,
     text-binary,
     Codec-Compression-LZF,
-    encoding
+    encoding,
+    directory,
+    array
 
 test-suite yxdb-tests
   hs-source-dirs: src, .
@@ -65,6 +67,8 @@ test-suite yxdb-tests
     text-binary,
     Codec-Compression-LZF,
     encoding,
+    directory,
+    array,
     test-framework,
     test-framework-hunit,
     test-framework-quickcheck2,

@@ -1,8 +1,12 @@
-import Test.Framework (defaultMain)
+import           Data.Binary
+import           Data.Binary.Get
+import           Database.Alteryx
 
-import Tests.Database.Alteryx (yxdbTests)
+exampleFile = "small-module.yxdb"
 
-main = defaultMain tests
-tests = [
-    yxdbTests
-]
+parsed :: IO (Either (ByteOffset, String) YxdbFile)
+parsed = decodeFileOrFail exampleFile
+
+main = do
+  p <- parsed
+  putStrLn $ show p

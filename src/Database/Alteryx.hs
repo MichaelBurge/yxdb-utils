@@ -2,15 +2,21 @@ module Database.Alteryx(
   Header(..),
   Content(..),
   Metadata(..),
-  YxdbFile(..)
+  YxdbFile(..),
+  headerPageSize,
+  numMetadataBytes,
+  numContentBytes
 ) where
 
 import Codec.Compression.LZF.ByteString (decompressByteStringUnsafe, compressByteString)
 import Control.Applicative
 import Control.Monad (liftM, msum, replicateM)
+import Data.Array.IArray (listArray, bounds, elems)
+import Data.Array.Unboxed (UArray)
 import Data.Binary
 import Data.Binary.Get
     (
+     bytesRead,
      getByteString,
      getRemainingLazyByteString,
      getWord32le,
@@ -52,9 +58,10 @@ dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
 data YxdbFile = YxdbFile {
-      header   :: Header,
-      metadata :: Metadata,
-      contents :: Content
+      header     :: Header,
+      metadata   :: Metadata,
+      contents   :: Content,
+      blockIndex :: BlockIndex
 } deriving (Eq, Show)
 
 data Header = Header {
@@ -64,31 +71,49 @@ data Header = Header {
       flags1 :: Word32,
       flags2 :: Word32,
       metaInfoLength :: Word32,
+      mystery :: Word32,
       spatialIndexPos :: Word64,
       recordBlockIndexPos :: Word64,
+      numRecords :: Word64,
       compressionVersion :: Word32,
       reservedSpace :: BS.ByteString
 } deriving (Eq, Show)
 
 newtype Metadata = Metadata Text deriving (Eq, Show)
 newtype Content = Content BSL.ByteString deriving (Eq, Show)
+newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
+
+numMetadataBytes :: Header -> Int
+numMetadataBytes header = fromIntegral $ 2 * (metaInfoLength $ header)
+
+numContentBytes :: Header -> Int
+numContentBytes header =
+    let start = headerPageSize + (numMetadataBytes header)
+        end =  (fromIntegral $ recordBlockIndexPos header)
+    in end - start
 
 instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
       put $ metadata yxdbFile
       put $ contents yxdbFile
+      put $ blockIndex yxdbFile
 
     get = do
-      fHeader <- label "Header" $ isolate headerPageSize get
-      fMetadata <- label "Metadata" $ isolate (fromIntegral $ 2 * (metaInfoLength fHeader)) $ get
+      fHeader     <- label "Header" $ isolate (fromIntegral headerPageSize) get
+      fMetadata   <- label "Metadata" $ isolate (numMetadataBytes fHeader) $ get
 
-      fContents <- label "Contents" get
+      metadataEnd <- fromIntegral <$> bytesRead
+      let numContentBytes = (fromIntegral $ recordBlockIndexPos fHeader) - metadataEnd
+
+      fContents   <- label "Contents" $ isolate numContentBytes get
+      fBlockIndex <- label "Block Index" get
 
       return $ YxdbFile {
         header    = fHeader,
         metadata  = fMetadata,
-        contents  = fContents
+        contents  = fContents,
+        blockIndex = fBlockIndex
       }
 
 instance Binary Metadata where
@@ -102,9 +127,25 @@ instance Binary Metadata where
 
 instance Binary Content where
     get = do
+      -- bs <- getByteString 3364
+      -- return $ Content $ BSL.fromChunks [ bs ]
+
+      -- return $ Content BSL.empty -- 
+
       chunks <- getContentChunks
       return $ Content $ BSL.fromChunks chunks
     put (Content content) = putContentChunks $ BSL.toChunks content
+
+instance Binary BlockIndex where
+    get = do
+      arraySize <- fromIntegral <$> getWord32le
+      blocks <- replicateM arraySize (fromIntegral <$> getWord64le)
+      return $ BlockIndex $ listArray (0, arraySize-1) blocks
+
+    put (BlockIndex blockIndex) = do
+      let (_, iMax) = bounds blockIndex
+      putWord32le $ fromIntegral $ iMax + 1
+      mapM_ (putWord64le . fromIntegral) $ elems blockIndex
 
 getContentChunks :: Get [BS.ByteString]
 getContentChunks = do
@@ -124,14 +165,15 @@ putContentChunks (x:xs) = do
 
 getContentChunk :: Get BS.ByteString
 getContentChunk = do
-  writtenSize <- getWord32le
+  writtenSize <- label "Content chunk size" getWord32le
   let compressionBitIndex = 31
   let isCompressed = not $ testBit writtenSize compressionBitIndex
-  let size = clearBit writtenSize compressionBitIndex
+  let size = fromIntegral $ clearBit writtenSize compressionBitIndex
 
-  bs <- getByteString $ fromIntegral size
+  bs <- label ("Content chunk of size " ++ show size) $ isolate size $ getByteString size
   let chunk = if isCompressed
-              then decompressByteStringUnsafe bs
+              then bs
+--              then decompressByteStringUnsafe bs
               else bs
   return chunk
 
@@ -157,8 +199,10 @@ instance Binary Header where
       putWord32le $ flags1 header
       putWord32le $ flags2 header
       putWord32le $ metaInfoLength header
+      putWord32le $ mystery header
       putWord64le $ spatialIndexPos header
       putWord64le $ recordBlockIndexPos header
+      putWord64le $ numRecords header
       putWord32le $ compressionVersion header
       putByteString $ reservedSpace header
 
@@ -169,8 +213,10 @@ instance Binary Header where
         fFlags1              <- label "Flags 1"             getWord32le
         fFlags2              <- label "Flags 2"             getWord32le
         fMetaInfoLength      <- label "Metadata Length"     getWord32le
+        fMystery             <- label "Mystery Field"       getWord32le
         fSpatialIndexPos     <- label "Spatial Index"       getWord64le
         fRecordBlockIndexPos <- label "Record Block"        getWord64le
+        fNumRecords          <- label "Num Records"         getWord64le
         fCompressionVersion  <- label "Compression Version" getWord32le
         fReservedSpace       <- label "Reserved Space" $ (BS.concat . BSL.toChunks <$> getRemainingLazyByteString)
 
@@ -181,8 +227,10 @@ instance Binary Header where
             flags1              = fFlags1,
             flags2              = fFlags2,
             metaInfoLength      = fMetaInfoLength,
+            mystery             = fMystery, 
             spatialIndexPos     = fSpatialIndexPos,
             recordBlockIndexPos = fRecordBlockIndexPos,
+            numRecords          = fNumRecords,
             compressionVersion  = fCompressionVersion,
             reservedSpace       = fReservedSpace
         }
