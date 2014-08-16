@@ -2,19 +2,24 @@ module Tests.Database.Alteryx (yxdbTests) where
 
 import Database.Alteryx
   (
+    BlockIndex(..),
     Header(..),
     Content(..),
     Metadata(..),
     YxdbFile(..),
     headerPageSize,
-    numContentBytes
+    numContentBytes,
+    numMetadataBytes
   )
 
 import Prelude hiding (readFile)
 
 import Control.Applicative
+import Control.Monad (replicateM)
+import Data.Array.IArray (listArray)
 import Data.Binary
 import Data.Binary.Get (runGet)
+import Data.Binary.Put (runPut)
 import Data.ByteString as BS
 import Data.ByteString.Lazy as BSL
 import Data.Encoding (decodeLazyByteString, Encoding)
@@ -37,18 +42,13 @@ instance Arbitrary YxdbFile where
   arbitrary = do
     fHeader <- arbitrary
     fContents <- resize (numContentBytes fHeader) arbitrary
-
-    metaInfoXmlBS <- vectorOf (fromIntegral $ metaInfoLength fHeader) (choose(0, 127))
-    let fMetaInfoXml = Metadata $ T.pack $ decodeLazyByteString UTF8 $ BSL.pack $ metaInfoXmlBS
-
-    blockIndexLength <- choose (4,100000)
-    blockIndexBS <- BSL.pack <$> vector blockIndexLength 
-    let fBlockIndex = runGet get blockIndexBS
+    fMetadata <- resize (fromIntegral $ metaInfoLength fHeader) arbitrary
+    fBlockIndex <- arbitrary
 
     return $ YxdbFile {
       header     = fHeader,
-      contents   = fContents,
-      metadata   = fMetaInfoXml,
+      content    = fContents,
+      metadata   = fMetadata,
       blockIndex = fBlockIndex
     }
 
@@ -63,10 +63,10 @@ instance Arbitrary Header where
     fMystery <- arbitrary
     fSpatialIndexPos <- arbitrary
     let startOfContent = fromIntegral $ headerPageSize + (fromIntegral $ 2 * fMetaInfoLength)
-    fRecordBlockIndexPos <- choose (startOfContent + 4,startOfContent + 1000)
+    fRecordBlockIndexPos <- choose (startOfContent + 4, startOfContent + 1000)
     fNumRecords <- arbitrary
     fCompressionVersion <- arbitrary
-    fReservedSpace <- vector (512 - 64 - (4 * 6) - (8 * 2)) :: Gen [Word8]
+    fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
 
     return $ Header {
             description         = BS.pack fDescription,
@@ -83,12 +83,27 @@ instance Arbitrary Header where
             reservedSpace       = BS.pack fReservedSpace
     }
 
+instance Arbitrary Metadata where
+    arbitrary =
+        sized $
+              \size -> do
+                  bs <- vectorOf size (choose(0, 127))
+                  return $ Metadata $ T.pack $ decodeLazyByteString UTF8 $ BSL.pack $ bs
+                  
+
 instance Arbitrary Content where
     arbitrary =
         sized $ 
             \chunkSize -> do
                contentsBS <- vector $ chunkSize - 4
                return $ Content $ BSL.pack contentsBS
+
+instance Arbitrary BlockIndex where
+    arbitrary =
+        sized $
+            \chunkSize -> do
+                indices <- replicateM chunkSize arbitrary
+                return $ BlockIndex $ listArray (0, chunkSize) indices
 
 exampleFilename :: String
 exampleFilename = "small-module.yxdb"
@@ -101,6 +116,27 @@ assertEq a b = let
     aStr = show a
     bStr = show b
     in printTestCase ("\nA: " ++ aStr ++ "\nB: " ++ bStr) (a == b)
+
+numBytes :: Binary a => a -> Int
+numBytes x = fromIntegral $ BSL.length $ runPut $ put x
+
+prop_HeaderLength :: Header -> Property
+prop_HeaderLength header =
+    assertEq headerPageSize (numBytes header)
+
+prop_MetadataLength :: YxdbFile -> Property
+prop_MetadataLength yxdb =
+    assertEq (numMetadataBytes $ header yxdb) (numBytes $ metadata yxdb)
+
+prop_ContentLength :: YxdbFile -> Property
+prop_ContentLength yxdb =
+    assertEq (numContentBytes $ header yxdb) (numBytes $ content yxdb)
+
+prop_BlockIndexGetAndPutAreInverses :: BlockIndex -> Property
+prop_BlockIndexGetAndPutAreInverses x = assertEq (decode $ encode x) x
+
+prop_MetadataGetAndPutAreInverses :: Metadata -> Property
+prop_MetadataGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
 prop_HeaderGetAndPutAreInverses :: Header -> Property
 prop_HeaderGetAndPutAreInverses x = assertEq (decode $ encode x) x
@@ -119,6 +155,11 @@ test_LoadingSmallModule = do
 
 yxdbTests =
     testGroup "YXDB" [
+        testProperty "Header length" prop_HeaderLength,
+        testProperty "Metadata length" prop_MetadataLength,
+        testProperty "Content length" prop_ContentLength,
+        testProperty "Block Index get & put inverses" prop_BlockIndexGetAndPutAreInverses,
+        testProperty "Metadata get and put inverses" prop_MetadataGetAndPutAreInverses,
         testProperty "Header get & put inverses" prop_HeaderGetAndPutAreInverses,
         testProperty "Content get & put inverses" prop_ContentGetAndPutAreInverses,
         testProperty "Yxdb get & put inverses" prop_YxdbFileGetAndPutAreInverses,

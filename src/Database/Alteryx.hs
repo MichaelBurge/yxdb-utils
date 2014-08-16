@@ -1,11 +1,13 @@
 module Database.Alteryx(
+  BlockIndex(..),
   Header(..),
   Content(..),
   Metadata(..),
   YxdbFile(..),
   headerPageSize,
   numMetadataBytes,
-  numContentBytes
+  numContentBytes,
+  startOfContentByteIndex
 ) where
 
 import Codec.Compression.LZF.ByteString (decompressByteStringUnsafe, compressByteString)
@@ -60,7 +62,7 @@ dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 data YxdbFile = YxdbFile {
       header     :: Header,
       metadata   :: Metadata,
-      contents   :: Content,
+      content   :: Content,
       blockIndex :: BlockIndex
 } deriving (Eq, Show)
 
@@ -92,11 +94,15 @@ numContentBytes header =
         end =  (fromIntegral $ recordBlockIndexPos header)
     in end - start
 
+startOfContentByteIndex :: Header -> Int
+startOfContentByteIndex header =
+    headerPageSize + (numMetadataBytes header)
+
 instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
       put $ metadata yxdbFile
-      put $ contents yxdbFile
+      put $ content yxdbFile
       put $ blockIndex yxdbFile
 
     get = do
@@ -106,13 +112,13 @@ instance Binary YxdbFile where
       metadataEnd <- fromIntegral <$> bytesRead
       let numContentBytes = (fromIntegral $ recordBlockIndexPos fHeader) - metadataEnd
 
-      fContents   <- label "Contents" $ isolate numContentBytes get
+      fContent    <- label "Content" $ isolate numContentBytes get
       fBlockIndex <- label "Block Index" get
 
       return $ YxdbFile {
-        header    = fHeader,
-        metadata  = fMetadata,
-        contents  = fContents,
+        header     = fHeader,
+        metadata   = fMetadata,
+        content    = fContent,
         blockIndex = fBlockIndex
       }
 
@@ -138,8 +144,11 @@ instance Binary Content where
 
 instance Binary BlockIndex where
     get = do
-      arraySize <- fromIntegral <$> getWord32le
-      blocks <- replicateM arraySize (fromIntegral <$> getWord64le)
+      arraySize <- label "Index Array Size" $ fromIntegral <$> getWord32le
+      let numBlockIndexBytes = arraySize * 8
+      blocks <- label ("Reading block of size " ++ show arraySize) $
+                isolate numBlockIndexBytes $
+                replicateM arraySize (fromIntegral <$> getWord64le)
       return $ BlockIndex $ listArray (0, arraySize-1) blocks
 
     put (BlockIndex blockIndex) = do
@@ -183,7 +192,8 @@ putContentChunk bs = do
   let compressedChunk = compressByteString bs
   let chunkToWrite = case compressedChunk of
                        Nothing -> bs
-                       Just x  -> x
+--                       Just x  -> x
+                       Just x  -> bs
   let size = BS.length chunkToWrite
   let writtenSize = if isJust compressedChunk
                     then size
