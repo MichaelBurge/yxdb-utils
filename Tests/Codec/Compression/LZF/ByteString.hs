@@ -2,10 +2,10 @@ module Tests.Codec.Compression.LZF.ByteString (lzfByteStringTests) where
 
 import Codec.Compression.LZF.ByteString
     (
-     compressByteStringUnsafe,
-     compressLazyByteStringUnsafe,
-     decompressByteStringUnsafe,
-     decompressLazyByteStringUnsafe
+     compressByteString,
+     compressLazyByteString,
+     decompressByteString,
+     decompressLazyByteString
     )
 
 import qualified Data.ByteString as BS
@@ -21,11 +21,11 @@ _compare a b x = property $ x == (a $ b x)
 
 prop_DecompressCompressInverses :: BS.ByteString -> Property
 prop_DecompressCompressInverses x =
-    _compare decompressByteStringUnsafe compressByteStringUnsafe x
+    _compare decompressByteString compressByteString x
 
 prop_LazyDecompressCompressInverses :: BSL.ByteString -> Property
 prop_LazyDecompressCompressInverses x =
-    _compare decompressLazyByteStringUnsafe compressLazyByteStringUnsafe x
+    _compare decompressLazyByteString compressLazyByteString x
 
 lzfByteStringTests =
     testGroup "Codec.Compression.LZF.ByteString" [

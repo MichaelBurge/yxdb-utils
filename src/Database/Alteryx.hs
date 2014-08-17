@@ -11,7 +11,7 @@ module Database.Alteryx(
   startOfContentByteIndex
 ) where
 
-import Codec.Compression.LZF.ByteString (decompressByteStringUnsafe, compressByteString)
+import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
 import Control.Applicative
 import Control.Monad (liftM, msum, replicateM)
 import Data.Array.IArray (listArray, bounds, elems)
@@ -22,6 +22,7 @@ import Data.Binary.Get
      bytesRead,
      getByteString,
      getRemainingLazyByteString,
+     getWord16le,
      getWord32le,
      getWord64le,
      isEmpty,
@@ -57,6 +58,7 @@ data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex
 recordsPerBlock = 0x10000
 spatialIndexRecordBlockSize = 32
 headerPageSize = 512
+bufferSize = 0x40000
 
 dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
@@ -138,11 +140,6 @@ instance Binary Metadata where
 
 instance Binary Content where
     get = do
-      -- bs <- getByteString 3364
-      -- return $ Content $ BSL.fromChunks [ bs ]
-
-      -- return $ Content BSL.empty -- 
-
       chunks <- getContentChunks
       return $ Content $ BSL.fromChunks chunks
     put (Content content) = putContentChunks $ BSL.toChunks content
@@ -185,16 +182,18 @@ getContentChunk = do
   let isCompressed = not $ testBit writtenSize compressionBitIndex
   let size = fromIntegral $ clearBit writtenSize compressionBitIndex
 
-  bs <- label ("Content chunk of size " ++ show size) $ isolate size $ getByteString size
+  bs <- label ("Content chunk of size " ++ show size) $ isolate size $ getByteString $ size
   let chunk = if isCompressed
-              then decompressByteStringUnsafe bs
-              else bs
-  return chunk
+              then case decompressByteStringFixed bufferSize bs of
+                     Nothing -> fail "Unable to decompress. Increase buffer size?"
+                     Just x -> return $ x
+              else return bs
+  chunk
 
 putContentChunk :: BS.ByteString -> Put
 putContentChunk bs = do
   let compressionBitIndex = 31
-  let compressedChunk = compressByteString bs
+  let compressedChunk = compressByteStringFixed ((BS.length bs)-1) bs
   let chunkToWrite = case compressedChunk of
                        Nothing -> bs
                        Just x  -> x
