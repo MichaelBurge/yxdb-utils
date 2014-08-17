@@ -6,7 +6,8 @@ module Database.Alteryx(
   YxdbFile(..),
   headerPageSize,
   numMetadataBytes,
-  numContentBytes,
+  numContentBytesActual,
+  numContentBytesHeader,
   startOfContentByteIndex
 ) where
 
@@ -36,7 +37,8 @@ import Data.Binary.Put
      putWord32le,
      putWord64le,
      flush,
-     Put(..)
+     Put(..),
+     runPut
     )
 import Data.Bits
 import qualified Data.ByteString as BS
@@ -88,11 +90,14 @@ newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 numMetadataBytes :: Header -> Int
 numMetadataBytes header = fromIntegral $ 2 * (metaInfoLength $ header)
 
-numContentBytes :: Header -> Int
-numContentBytes header =
+numContentBytesHeader :: Header -> Int
+numContentBytesHeader header =
     let start = headerPageSize + (numMetadataBytes header)
         end =  (fromIntegral $ recordBlockIndexPos header)
     in end - start
+
+numContentBytesActual :: Content -> Int
+numContentBytesActual content = fromIntegral $ BSL.length $ runPut $ put content
 
 startOfContentByteIndex :: Header -> Int
 startOfContentByteIndex header =
@@ -167,7 +172,8 @@ getContentChunks = do
        return $ chunk:remainingChunks
 
 putContentChunks :: [BS.ByteString] -> Put
-putContentChunks [] = flush
+putContentChunks [] = putContentChunk BS.empty
+putContentChunks [x] = putContentChunk x
 putContentChunks (x:xs) = do
   putContentChunk x
   putContentChunks xs
@@ -181,8 +187,7 @@ getContentChunk = do
 
   bs <- label ("Content chunk of size " ++ show size) $ isolate size $ getByteString size
   let chunk = if isCompressed
-              then bs
---              then decompressByteStringUnsafe bs
+              then decompressByteStringUnsafe bs
               else bs
   return chunk
 
@@ -192,8 +197,7 @@ putContentChunk bs = do
   let compressedChunk = compressByteString bs
   let chunkToWrite = case compressedChunk of
                        Nothing -> bs
---                       Just x  -> x
-                       Just x  -> bs
+                       Just x  -> x
   let size = BS.length chunkToWrite
   let writtenSize = if isJust compressedChunk
                     then size

@@ -8,7 +8,8 @@ import Database.Alteryx
     Metadata(..),
     YxdbFile(..),
     headerPageSize,
-    numContentBytes,
+    numContentBytesHeader,
+    numContentBytesActual,
     numMetadataBytes
   )
 
@@ -40,8 +41,8 @@ import System.IO
 
 instance Arbitrary YxdbFile where
   arbitrary = do
-    fHeader <- arbitrary
-    fContents <- resize (numContentBytes fHeader) arbitrary
+    fContents <- arbitrary
+    fHeader <- resize (fromIntegral $ numContentBytesActual fContents) arbitrary
     fMetadata <- resize (fromIntegral $ metaInfoLength fHeader) arbitrary
     fBlockIndex <- arbitrary
 
@@ -53,35 +54,36 @@ instance Arbitrary YxdbFile where
     }
 
 instance Arbitrary Header where
-  arbitrary = do
-    fDescription <- vector 64 :: Gen [Word8]
-    fFileId <- arbitrary
-    fCreationDate <- arbitrary
-    fFlags1 <- arbitrary
-    fFlags2 <- arbitrary
-    fMetaInfoLength <- choose(0, 1000)
-    fMystery <- arbitrary
-    fSpatialIndexPos <- arbitrary
-    let startOfContent = fromIntegral $ headerPageSize + (fromIntegral $ 2 * fMetaInfoLength)
-    fRecordBlockIndexPos <- choose (startOfContent + 4, startOfContent + 1000)
-    fNumRecords <- arbitrary
-    fCompressionVersion <- arbitrary
-    fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
-
-    return $ Header {
-            description         = BS.pack fDescription,
-            fileId              = fFileId,
-            creationDate        = fCreationDate,
-            flags1              = fFlags1,
-            flags2              = fFlags2,
-            metaInfoLength      = fMetaInfoLength,
-            mystery             = fMystery,
-            spatialIndexPos     = fSpatialIndexPos,
-            recordBlockIndexPos = fRecordBlockIndexPos,
-            numRecords          = fNumRecords,
-            compressionVersion  = fCompressionVersion,
-            reservedSpace       = BS.pack fReservedSpace
-    }
+  arbitrary = 
+      sized $
+            \numContentBytes -> do
+                fDescription <- vector 64 :: Gen [Word8]
+                fFileId <- arbitrary
+                fCreationDate <- arbitrary
+                fFlags1 <- arbitrary
+                fFlags2 <- arbitrary
+                fMetaInfoLength <- choose(0, 1000)
+                fMystery <- arbitrary
+                fSpatialIndexPos <- arbitrary
+                let startOfContent = fromIntegral $ headerPageSize + (fromIntegral $ 2 * fMetaInfoLength)
+                let fRecordBlockIndexPos = startOfContent + (fromIntegral numContentBytes)
+                fNumRecords <- arbitrary
+                fCompressionVersion <- arbitrary
+                fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
+                return $ Header {
+                    description         = BS.pack fDescription,
+                    fileId              = fFileId,
+                    creationDate        = fCreationDate,
+                    flags1              = fFlags1,
+                    flags2              = fFlags2,
+                    metaInfoLength      = fMetaInfoLength,
+                    mystery             = fMystery,
+                    spatialIndexPos     = fSpatialIndexPos,
+                    recordBlockIndexPos = fRecordBlockIndexPos,
+                    numRecords          = fNumRecords,
+                    compressionVersion  = fCompressionVersion,
+                    reservedSpace       = BS.pack fReservedSpace
+                }
 
 instance Arbitrary Metadata where
     arbitrary =
@@ -130,7 +132,7 @@ prop_MetadataLength yxdb =
 
 prop_ContentLength :: YxdbFile -> Property
 prop_ContentLength yxdb =
-    assertEq (numContentBytes $ header yxdb) (numBytes $ content yxdb)
+    assertEq (numContentBytesHeader $ header yxdb) (numBytes $ content yxdb)
 
 prop_BlockIndexGetAndPutAreInverses :: BlockIndex -> Property
 prop_BlockIndexGetAndPutAreInverses x = assertEq (decode $ encode x) x
