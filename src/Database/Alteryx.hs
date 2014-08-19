@@ -20,12 +20,13 @@ module Database.Alteryx(
 
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
 import Control.Applicative
-import Control.Monad (liftM, msum, replicateM, when)
+import Control.Monad as M (liftM, msum, replicateM, when, zipWithM_)
 import Control.Monad.Trans.Resource (runResourceT)
 import Data.Array.IArray (listArray, bounds, elems)
 import Data.Array.Unboxed (UArray)
 import Data.Bimap as Bimap (Bimap(..), fromList, lookup, lookupR)
 import Data.Binary
+import Data.Binary.C ()
 import Data.Binary.Get
     (
      bytesRead,
@@ -41,6 +42,7 @@ import Data.Binary.Get
      remaining,
      runGet
     )
+import Data.Binary.C
 import Data.Binary.Put
     (
      putByteString,
@@ -64,6 +66,7 @@ import Data.Text.Encoding (decodeUtf16LE, encodeUtf16LE)
 import qualified Data.Text.Lazy as TL
 import Data.Time.Calendar (Day(..))
 import Data.Time.Clock (UniversalTime(..), UTCTime(..), DiffTime(..))
+import Foreign.C.Types
 import System.IO.Unsafe (unsafePerformIO)
 import Text.XML
     (
@@ -174,6 +177,7 @@ data Field = Field {
       fieldScale :: Maybe Int
 } deriving (Eq, Show)
 
+newtype Record = Record [ FieldValue ] deriving (Eq, Show)
 newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
 newtype Metadata = Metadata [ RecordInfo ] deriving (Eq, Show)
 newtype Blocks = Blocks BSL.ByteString deriving (Eq, Show)
@@ -347,6 +351,61 @@ instance Binary Blocks where
       chunks <- getBlocks
       return $ Blocks $ BSL.fromChunks chunks
     put (Blocks blocks) = putBlocks $ BSL.toChunks blocks
+
+putRecord :: Record -> Put
+putRecord (Record fieldValues) = mapM_ putValue fieldValues
+
+getRecord :: RecordInfo -> Get Record
+getRecord (RecordInfo fields) = Record <$> mapM getValue fields
+
+putValue :: FieldValue -> Put
+putValue value = do
+  case value of
+    FVBool x          -> error "putBool unimplemented"
+    FVByte x          -> error "putByte unimplemented"
+    FVInt16 x         -> error "putInt16 unimplemented"
+    FVInt32 x         -> error "putInt32 unimplemented"
+    FVInt64 x         -> error "putInt64 unimplemented"
+    FVFixedDecimal x  -> error "putFixedDecimal unimplemented"
+    FVFloat x         -> error "putFloat unimplemented"
+    FVDouble x        -> do
+      let y = realToFrac x :: CDouble
+      put y
+    FVString x        -> error "putString unimplemented"
+    FVWString x       -> error "putWString unimplemented"
+    FVVString x       -> error "putVString unimplemented"
+    FVVWString x      -> error "putVWString unimplemented"
+    FVDate x          -> error "putDate unimplemented"
+    FVTime x          -> error "putTime unimplemented"
+    FVDateTime x      -> error "putDateTime unimplemented"
+    FVBlob x          -> error "putBlob unimplemented"
+    FVSpatialObject x -> error "putSpatialObject unimplemented"
+    FVUnknown       -> error "putUnknown unimplemented"
+
+getValue :: Field -> Get FieldValue
+getValue field =
+    case fieldType field of
+      FTBool          -> error "getBool unimplemented"
+      FTByte          -> error "getByte unimplemented"
+      FTInt16         -> error "getInt16 unimplemented"
+      FTInt32         -> error "getInt32 unimplemented"
+      FTInt64         -> error "getInt64 unimplemented"
+      FTFixedDecimal  -> error "getFixedDecimal unimplemented"
+      FTFloat         -> error "getFloat unimplemented"
+      FTDouble        -> do
+        double <- get :: Get CDouble
+        return $ FVDouble $ realToFrac double
+      FTString        -> error "getString unimplemented"
+      FTWString       -> error "getWString unimplemented"
+      FTVString       -> error "getVString unimplemented"
+      FTVWString      -> error "getVWString unimplemented"
+      FTDate          -> error "getDate unimplemented"
+      FTTime          -> error "getTime unimplemented"
+      FTDateTime      -> error "getDateTime unimplemented"
+      FTBlob          -> error "getBlob unimplemented"
+      FTSpatialObject -> error "getSpatialObject unimplemented"
+      FTUnknown       -> error "getUnknown unimplemented"
+
 
 instance Binary BlockIndex where
     get = do
