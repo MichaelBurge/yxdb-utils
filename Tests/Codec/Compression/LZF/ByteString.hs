@@ -35,7 +35,7 @@ data NSmall = NSmall Int deriving (Show)
 data BSSmall = BSSmall BS.ByteString deriving (Show)
 
 instance Arbitrary NSmall where
-    arbitrary = NSmall <$> choose (0,1000000)
+    arbitrary = NSmall <$> choose (0,10000)
 
 instance Arbitrary BSSmall where
     arbitrary = do
