@@ -3,7 +3,7 @@
 module Database.Alteryx(
   BlockIndex(..),
   Header(..),
-  Content(..),
+  Blocks(..),
   Metadata(..),
   YxdbFile(..),
   FieldValue(..),
@@ -13,9 +13,9 @@ module Database.Alteryx(
   headerPageSize,
   numMetadataBytesActual,
   numMetadataBytesHeader,
-  numContentBytesActual,
-  numContentBytesHeader,
-  startOfContentByteIndex
+  numBlocksBytesActual,
+  numBlocksBytesHeader,
+  startOfBlocksByteIndex
 ) where
 
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
@@ -108,7 +108,7 @@ dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 data YxdbFile = YxdbFile {
       header     :: Header,
       metadata   :: Metadata,
-      content   :: Content,
+      blocks     :: Blocks,
       blockIndex :: BlockIndex
 } deriving (Eq, Show)
 
@@ -176,7 +176,7 @@ data Field = Field {
 
 newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
 newtype Metadata = Metadata [ RecordInfo ] deriving (Eq, Show)
-newtype Content = Content BSL.ByteString deriving (Eq, Show)
+newtype Blocks = Blocks BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 
 numBytes x = fromIntegral $ BSL.length $ runPut $ put x
@@ -187,24 +187,24 @@ numMetadataBytesHeader header = fromIntegral $ 2 * (metaInfoLength $ header)
 numMetadataBytesActual :: Metadata -> Int
 numMetadataBytesActual metadata = numBytes metadata
 
-numContentBytesHeader :: Header -> Int
-numContentBytesHeader header =
+numBlocksBytesHeader :: Header -> Int
+numBlocksBytesHeader header =
     let start = headerPageSize + (numMetadataBytesHeader header)
         end =  (fromIntegral $ recordBlockIndexPos header)
     in end - start
 
-numContentBytesActual :: Content -> Int
-numContentBytesActual content = numBytes content
+numBlocksBytesActual :: Blocks -> Int
+numBlocksBytesActual blocks = numBytes blocks
 
-startOfContentByteIndex :: Header -> Int
-startOfContentByteIndex header =
+startOfBlocksByteIndex :: Header -> Int
+startOfBlocksByteIndex header =
     headerPageSize + (numMetadataBytesHeader header)
 
 instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
       put $ metadata yxdbFile
-      put $ content yxdbFile
+      put $ blocks yxdbFile
       put $ blockIndex yxdbFile
 
     get = do
@@ -212,15 +212,15 @@ instance Binary YxdbFile where
       fMetadata   <- label "Metadata" $ isolate (numMetadataBytesHeader fHeader) $ get
 
       metadataEnd <- fromIntegral <$> bytesRead
-      let numContentBytes = (fromIntegral $ recordBlockIndexPos fHeader) - metadataEnd
+      let numBlocksBytes = (fromIntegral $ recordBlockIndexPos fHeader) - metadataEnd
 
-      fContent    <- label "Content" $ isolate numContentBytes get
+      fBlocks    <- label "Blocks" $ isolate numBlocksBytes get
       fBlockIndex <- label "Block Index" get
 
       return $ YxdbFile {
         header     = fHeader,
         metadata   = fMetadata,
-        content    = fContent,
+        blocks     = fBlocks,
         blockIndex = fBlockIndex
       }
 
@@ -342,11 +342,11 @@ renderFieldType fieldType =
       Nothing -> error $ "No field type assigned to " ++ show fieldType
       Just x -> x
 
-instance Binary Content where
+instance Binary Blocks where
     get = do
-      chunks <- getContentChunks
-      return $ Content $ BSL.fromChunks chunks
-    put (Content content) = putContentChunks $ BSL.toChunks content
+      chunks <- getBlocks
+      return $ Blocks $ BSL.fromChunks chunks
+    put (Blocks blocks) = putBlocks $ BSL.toChunks blocks
 
 instance Binary BlockIndex where
     get = do
@@ -362,31 +362,31 @@ instance Binary BlockIndex where
       putWord32le $ fromIntegral $ iMax + 1
       mapM_ (putWord64le . fromIntegral) $ elems blockIndex
 
-getContentChunks :: Get [BS.ByteString]
-getContentChunks = do
+getBlocks :: Get [BS.ByteString]
+getBlocks = do
   done <- isEmpty
   if (done)
      then return $ []
      else do
-       chunk <- getContentChunk
-       remainingChunks <- getContentChunks
-       return $ chunk:remainingChunks
+       block <- getBlock
+       remainingBlocks <- getBlocks
+       return $ block:remainingBlocks
 
-putContentChunks :: [BS.ByteString] -> Put
-putContentChunks [] = putContentChunk BS.empty
-putContentChunks [x] = putContentChunk x
-putContentChunks (x:xs) = do
-  putContentChunk x
-  putContentChunks xs
+putBlocks :: [BS.ByteString] -> Put
+putBlocks []  = putBlock BS.empty
+putBlocks [x] = putBlock x
+putBlocks (x:xs) = do
+  putBlock x
+  putBlocks xs
 
-getContentChunk :: Get BS.ByteString
-getContentChunk = do
-  writtenSize <- label "Content chunk size" getWord32le
+getBlock :: Get BS.ByteString
+getBlock = do
+  writtenSize <- label "Block size" getWord32le
   let compressionBitIndex = 31
   let isCompressed = not $ testBit writtenSize compressionBitIndex
   let size = fromIntegral $ clearBit writtenSize compressionBitIndex
 
-  bs <- label ("Content chunk of size " ++ show size) $ isolate size $ getByteString $ size
+  bs <- label ("Block of size " ++ show size) $ isolate size $ getByteString $ size
   let chunk = if isCompressed
               then case decompressByteStringFixed bufferSize bs of
                      Nothing -> fail "Unable to decompress. Increase buffer size?"
@@ -394,19 +394,19 @@ getContentChunk = do
               else return bs
   chunk
 
-putContentChunk :: BS.ByteString -> Put
-putContentChunk bs = do
+putBlock :: BS.ByteString -> Put
+putBlock bs = do
   let compressionBitIndex = 31
-  let compressedChunk = compressByteStringFixed ((BS.length bs)-1) bs
-  let chunkToWrite = case compressedChunk of
+  let compressedBlock = compressByteStringFixed ((BS.length bs)-1) bs
+  let blockToWrite = case compressedBlock of
                        Nothing -> bs
                        Just x  -> x
-  let size = BS.length chunkToWrite
-  let writtenSize = if isJust compressedChunk
+  let size = BS.length blockToWrite
+  let writtenSize = if isJust compressedBlock
                     then size
                     else setBit size compressionBitIndex
   putWord32le $ fromIntegral writtenSize
-  putByteString chunkToWrite
+  putByteString blockToWrite
 
 instance Binary Header where
     put header = do

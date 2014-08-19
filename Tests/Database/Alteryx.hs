@@ -4,7 +4,7 @@ import Database.Alteryx
   (
     BlockIndex(..),
     Header(..),
-    Content(..),
+    Blocks(..),
     Metadata(..),
     YxdbFile(..),
     FieldType(..),
@@ -12,8 +12,8 @@ import Database.Alteryx
     Field(..),
     RecordInfo(..),
     headerPageSize,
-    numContentBytesHeader,
-    numContentBytesActual,
+    numBlocksBytesHeader,
+    numBlocksBytesActual,
     numMetadataBytesActual,
     numMetadataBytesHeader
   )
@@ -47,29 +47,29 @@ import System.IO
 
 instance Arbitrary YxdbFile where
   arbitrary = do
-    fMetadata <- arbitrary
-    contentSize <- choose(4,1000)
-    fContent  <- resize contentSize $ arbitraryContentMatching fMetadata
-    fHeader   <- arbitraryHeaderMatching fMetadata fContent
+    fMetadata   <- arbitrary
+    blockSize   <- choose(4,1000)
+    fBlocks     <- resize blockSize $ arbitraryBlocksMatching fMetadata
+    fHeader     <- arbitraryHeaderMatching fMetadata fBlocks
     fBlockIndex <- arbitrary
 
     return $ YxdbFile {
       header     = fHeader,
-      content    = fContent,
+      blocks     = fBlocks,
       metadata   = fMetadata,
       blockIndex = fBlockIndex
     }
 
-arbitraryContentMatching :: Metadata -> Gen Content
-arbitraryContentMatching metadata =
-    sized $ \chunkSize -> do
-      when (chunkSize < 4) $ fail $ "Invalid content chunkSize" ++ show chunkSize
-      contentsBS <- vector $ chunkSize - 4
+arbitraryBlocksMatching :: Metadata -> Gen Blocks
+arbitraryBlocksMatching metadata =
+    sized $ \blockSize -> do
+      when (blockSize < 4) $ fail $ "Invalid block size" ++ show blockSize
+      blocksBS <- vector $ blockSize - 4
 
-      return $ Content $ BSL.pack contentsBS
+      return $ Blocks $ BSL.pack blocksBS
 
-arbitraryHeaderMatching :: Metadata -> Content -> Gen Header
-arbitraryHeaderMatching metadata content = do
+arbitraryHeaderMatching :: Metadata -> Blocks -> Gen Header
+arbitraryHeaderMatching metadata blocks = do
   fDescription <- vector 64 :: Gen [Word8]
   fFileId <- arbitrary
   fCreationDate <- arbitrary
@@ -79,9 +79,9 @@ arbitraryHeaderMatching metadata content = do
   fSpatialIndexPos <- arbitrary
   let numMetadataBytes = numMetadataBytesActual metadata
   let fMetaInfoLength = fromIntegral $ numMetadataBytes `div` 2
-  let numContentBytes = numContentBytesActual content
-  let startOfContent = fromIntegral $ headerPageSize + (fromIntegral $ numMetadataBytes)
-  let fRecordBlockIndexPos = startOfContent + (fromIntegral numContentBytes)
+  let numBlocksBytes = numBlocksBytesActual blocks
+  let startOfBlocks = fromIntegral $ headerPageSize + (fromIntegral $ numMetadataBytes)
+  let fRecordBlockIndexPos = startOfBlocks + (fromIntegral numBlocksBytes)
   fNumRecords <- arbitrary
   fCompressionVersion <- arbitrary
   fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
@@ -103,13 +103,13 @@ arbitraryHeaderMatching metadata content = do
 instance Arbitrary Header where
     arbitrary = do
       metadata <- arbitrary
-      content <- arbitraryContentMatching metadata
-      arbitraryHeaderMatching metadata content
+      blocks <- arbitraryBlocksMatching metadata
+      arbitraryHeaderMatching metadata blocks
 
-instance Arbitrary Content where
+instance Arbitrary Blocks where
     arbitrary = do
       metadata <- arbitrary
-      arbitraryContentMatching metadata
+      arbitraryBlocksMatching metadata
 
 instance Arbitrary FieldType where
     arbitrary = elements [
@@ -166,8 +166,8 @@ instance Arbitrary BlockIndex where
 exampleFilename :: String
 exampleFilename = "small-module.yxdb"
 
-exampleContents :: BSL.ByteString
-exampleContents = unsafePerformIO $ BSL.readFile exampleFilename
+exampleBlocks :: BSL.ByteString
+exampleBlocks = unsafePerformIO $ BSL.readFile exampleFilename
 
 assertEq :: (Eq a, Show a) => a -> a -> Property
 assertEq a b = let
@@ -186,11 +186,9 @@ prop_MetadataLength :: YxdbFile -> Property
 prop_MetadataLength yxdb =
     assertEq (numMetadataBytesHeader $ header yxdb) (numMetadataBytesActual $ metadata yxdb)
 
-prop_ContentLength :: YxdbFile -> Property
-prop_ContentLength yxdb =
---    assertEq (recordBlockIndexPos $ header yxdb) (recordBlockIndexPos $ header yxdb)
---    assertEq (numContentBytesHeader $ header yxdb) (numContentBytesHeader $ header yxdb)
-    assertEq (numContentBytesHeader $ header yxdb) (numContentBytesActual $ content yxdb)
+prop_BlocksLength :: YxdbFile -> Property
+prop_BlocksLength yxdb =
+    assertEq (numBlocksBytesHeader $ header yxdb) (numBlocksBytesActual $ blocks yxdb)
 
 prop_BlockIndexGetAndPutAreInverses :: BlockIndex -> Property
 prop_BlockIndexGetAndPutAreInverses x = assertEq (decode $ encode x) x
@@ -201,8 +199,8 @@ prop_MetadataGetAndPutAreInverses x = assertEq (decode $ encode x) x
 prop_HeaderGetAndPutAreInverses :: Header -> Property
 prop_HeaderGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
-prop_ContentGetAndPutAreInverses :: Content -> Property
-prop_ContentGetAndPutAreInverses x = assertEq (decode $ encode x) x
+prop_BlocksGetAndPutAreInverses :: Blocks -> Property
+prop_BlocksGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
 prop_YxdbFileGetAndPutAreInverses :: YxdbFile -> Property
 prop_YxdbFileGetAndPutAreInverses x = assertEq (decode $ encode x) x
@@ -217,11 +215,11 @@ yxdbTests =
     testGroup "YXDB" [
         testProperty "Header length" prop_HeaderLength,
         testProperty "Metadata length" prop_MetadataLength,
-        testProperty "Content length" prop_ContentLength,
+        testProperty "Blocks length" prop_BlocksLength,
         testProperty "Block Index get & put inverses" prop_BlockIndexGetAndPutAreInverses,
         testProperty "Metadata get and put inverses" prop_MetadataGetAndPutAreInverses,
         testProperty "Header get & put inverses" prop_HeaderGetAndPutAreInverses,
-        testProperty "Content get & put inverses" prop_ContentGetAndPutAreInverses,
+        testProperty "Blocks get & put inverses" prop_BlocksGetAndPutAreInverses,
         testProperty "Yxdb get & put inverses" prop_YxdbFileGetAndPutAreInverses,
         testCase "Loading small module" test_LoadingSmallModule
     ]
