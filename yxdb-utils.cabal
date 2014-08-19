@@ -46,35 +46,52 @@ library
   exposed-modules:
     Database.Alteryx
   build-depends:
-    base ==4.*,
-    text,
-    bytestring,
-    binary >0.7.2,
-    text-binary,
     Codec-Compression-LZF,
-    encoding,
+    array,
+    base ==4.*,
+    bimap,
+    binary >0.7.2,
+    bytestring,
+    conduit,
+    conduit-extra,
+    containers,
+    Decimal,
     directory,
-    array
+    encoding,
+    resourcet,
+    text,
+    text-binary,
+    time,
+    xml-conduit
 
 test-suite yxdb-tests
   hs-source-dirs: src, .
   type: exitcode-stdio-1.0
   build-depends:
-    base -any,
-    text,
-    bytestring,
-    binary,
-    text-binary,
     Codec-Compression-LZF,
-    encoding,
-    directory,
+    Decimal,
+    HUnit,
+    QuickCheck,
     array,
+    base -any,
+    bimap,
+    binary,
+    bytestring,
+    conduit,
+    conduit-extra,
+    containers,
+    derive,
+    directory,
+    encoding,
+    quickcheck-instances,
+    resourcet,
     test-framework,
     test-framework-hunit,
     test-framework-quickcheck2,
-    HUnit,
-    QuickCheck,
-    quickcheck-instances
+    text,
+    text-binary,
+    time,
+    xml-conduit
   main-is: Tests/Main.hs
   buildable: True
   hs-source-dirs: src

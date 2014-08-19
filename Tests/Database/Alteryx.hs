@@ -7,10 +7,15 @@ import Database.Alteryx
     Content(..),
     Metadata(..),
     YxdbFile(..),
+    FieldType(..),
+    FieldValue(..),
+    Field(..),
+    RecordInfo(..),
     headerPageSize,
     numContentBytesHeader,
     numContentBytesActual,
-    numMetadataBytes
+    numMetadataBytesActual,
+    numMetadataBytesHeader
   )
 
 import Prelude hiding (readFile)
@@ -41,64 +46,111 @@ import System.IO
 
 instance Arbitrary YxdbFile where
   arbitrary = do
-    fContents <- arbitrary
-    fHeader <- resize (fromIntegral $ numContentBytesActual fContents) arbitrary
-    fMetadata <- resize (fromIntegral $ metaInfoLength fHeader) arbitrary
+    fMetadata <- arbitrary
+    contentSize <- choose(4,1000)
+    fContent  <- resize contentSize $ arbitraryContentMatching fMetadata
+    fHeader   <- arbitraryHeaderMatching fMetadata fContent
     fBlockIndex <- arbitrary
 
     return $ YxdbFile {
       header     = fHeader,
-      content    = fContents,
+      content    = fContent,
       metadata   = fMetadata,
       blockIndex = fBlockIndex
     }
 
-instance Arbitrary Header where
-  arbitrary = 
-      sized $
-            \numContentBytes -> do
-                fDescription <- vector 64 :: Gen [Word8]
-                fFileId <- arbitrary
-                fCreationDate <- arbitrary
-                fFlags1 <- arbitrary
-                fFlags2 <- arbitrary
-                fMetaInfoLength <- choose(0, 1000)
-                fMystery <- arbitrary
-                fSpatialIndexPos <- arbitrary
-                let startOfContent = fromIntegral $ headerPageSize + (fromIntegral $ 2 * fMetaInfoLength)
-                let fRecordBlockIndexPos = startOfContent + (fromIntegral numContentBytes)
-                fNumRecords <- arbitrary
-                fCompressionVersion <- arbitrary
-                fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
-                return $ Header {
-                    description         = BS.pack fDescription,
-                    fileId              = fFileId,
-                    creationDate        = fCreationDate,
-                    flags1              = fFlags1,
-                    flags2              = fFlags2,
-                    metaInfoLength      = fMetaInfoLength,
-                    mystery             = fMystery,
-                    spatialIndexPos     = fSpatialIndexPos,
-                    recordBlockIndexPos = fRecordBlockIndexPos,
-                    numRecords          = fNumRecords,
-                    compressionVersion  = fCompressionVersion,
-                    reservedSpace       = BS.pack fReservedSpace
-                }
+arbitraryContentMatching :: Metadata -> Gen Content
+arbitraryContentMatching metadata =
+    sized $ \chunkSize -> do
+      contentsBS <- vector $ chunkSize - 4
+      return $ Content $ BSL.pack contentsBS
 
-instance Arbitrary Metadata where
-    arbitrary =
-        sized $
-              \size -> do
-                  bs <- vectorOf size (choose(0, 127))
-                  return $ Metadata $ T.pack $ decodeLazyByteString UTF8 $ BSL.pack $ bs
-                  
+arbitraryHeaderMatching :: Metadata -> Content -> Gen Header
+arbitraryHeaderMatching metadata content = do
+  fDescription <- vector 64 :: Gen [Word8]
+  fFileId <- arbitrary
+  fCreationDate <- arbitrary
+  fFlags1 <- arbitrary
+  fFlags2 <- arbitrary
+  fMystery <- arbitrary
+  fSpatialIndexPos <- arbitrary
+  let fMetaInfoLength = fromIntegral $ (numMetadataBytesActual metadata) `div` 2
+  let numContentBytes = numContentBytesActual content
+  let startOfContent = fromIntegral $ headerPageSize + (fromIntegral $ 2 * fMetaInfoLength)
+  let fRecordBlockIndexPos = startOfContent + (fromIntegral numContentBytes)
+  fNumRecords <- arbitrary
+  fCompressionVersion <- arbitrary
+  fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
+  return $ Header {
+               description         = BS.pack fDescription,
+               fileId              = fFileId,
+               creationDate        = fCreationDate,
+               flags1              = fFlags1,
+               flags2              = fFlags2,
+               metaInfoLength      = fMetaInfoLength,
+               mystery             = fMystery,
+               spatialIndexPos     = fSpatialIndexPos,
+               recordBlockIndexPos = fRecordBlockIndexPos,
+               numRecords          = fNumRecords,
+               compressionVersion  = fCompressionVersion,
+               reservedSpace       = BS.pack fReservedSpace
+             }
+
+instance Arbitrary Header where
+    arbitrary = do
+      metadata <- arbitrary
+      content <- arbitraryContentMatching metadata
+      arbitraryHeaderMatching metadata content
 
 instance Arbitrary Content where
-    arbitrary =
-        sized $ 
-            \chunkSize -> do
-               contentsBS <- vector $ chunkSize - 4
-               return $ Content $ BSL.pack contentsBS
+    arbitrary = do
+      metadata <- arbitrary
+      arbitraryContentMatching metadata
+
+instance Arbitrary FieldType where
+    arbitrary = elements [
+                 FTBool,
+                 FTByte,
+                 FTInt16,
+                 FTInt32,
+                 FTInt64,
+                 FTFixedDecimal,
+                 FTFloat,
+                 FTDouble,
+                 FTString,
+                 FTWString,
+                 FTVString,
+                 FTVWString,
+                 FTDate,
+                 FTTime,
+                 FTDateTime,
+                 FTBlob,
+                 FTSpatialObject,
+                 FTUnknown
+                ]
+
+instance Arbitrary Field where
+    arbitrary = do
+      fName <- arbitrary
+      fType <- arbitrary
+      fSize <- arbitrary
+      fScale <- arbitrary
+      return $ Field {
+                   fieldName = fName,
+                   fieldType = fType,
+                   fieldSize = fSize,
+                   fieldScale = fScale
+                 }
+
+instance Arbitrary RecordInfo where
+    arbitrary = do
+      len <- choose(1,1)
+      RecordInfo <$> vector len
+
+instance Arbitrary Metadata where
+    arbitrary = do
+      len <- choose(1,10)
+      Metadata <$> vector len
 
 instance Arbitrary BlockIndex where
     arbitrary =
@@ -128,11 +180,11 @@ prop_HeaderLength header =
 
 prop_MetadataLength :: YxdbFile -> Property
 prop_MetadataLength yxdb =
-    assertEq (numMetadataBytes $ header yxdb) (numBytes $ metadata yxdb)
+    assertEq (numMetadataBytesHeader $ header yxdb) (numMetadataBytesActual $ metadata yxdb)
 
 prop_ContentLength :: YxdbFile -> Property
 prop_ContentLength yxdb =
-    assertEq (numContentBytesHeader $ header yxdb) (numBytes $ content yxdb)
+    assertEq (numContentBytesHeader $ header yxdb) (numContentBytesActual $ content yxdb)
 
 prop_BlockIndexGetAndPutAreInverses :: BlockIndex -> Property
 prop_BlockIndexGetAndPutAreInverses x = assertEq (decode $ encode x) x

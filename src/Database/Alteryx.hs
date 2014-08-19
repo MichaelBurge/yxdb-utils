@@ -1,11 +1,18 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Database.Alteryx(
   BlockIndex(..),
   Header(..),
   Content(..),
   Metadata(..),
   YxdbFile(..),
+  FieldValue(..),
+  FieldType(..),
+  Field(..),
+  RecordInfo(..),
   headerPageSize,
-  numMetadataBytes,
+  numMetadataBytesActual,
+  numMetadataBytesHeader,
   numContentBytesActual,
   numContentBytesHeader,
   startOfContentByteIndex
@@ -14,8 +21,10 @@ module Database.Alteryx(
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
 import Control.Applicative
 import Control.Monad (liftM, msum, replicateM)
+import Control.Monad.Trans.Resource (runResourceT)
 import Data.Array.IArray (listArray, bounds, elems)
 import Data.Array.Unboxed (UArray)
+import Data.Bimap as Bimap (Bimap(..), fromList, lookup, lookupR)
 import Data.Binary
 import Data.Binary.Get
     (
@@ -45,12 +54,45 @@ import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Lazy.Char8 as BSC
+import Data.Conduit (($$), ($=), Sink(..), yield)
+import Data.Decimal (Decimal(..))
 import Data.Int
-import Data.Maybe (isJust)
+import qualified Data.Map as Map
+import Data.Maybe (isJust, listToMaybe)
 import Data.Text as T
-import Data.Text.Encoding
+import Data.Text.Encoding (decodeUtf16LE, encodeUtf16LE)
+import qualified Data.Text.Lazy as TL
+import Data.Time.Calendar (Day(..))
+import Data.Time.Clock (UniversalTime(..), UTCTime(..), DiffTime(..))
 import System.IO.Unsafe (unsafePerformIO)
-
+import Text.XML
+    (
+     Document(..),
+     Element(..),
+     Node(..),
+     Prologue(..),
+     parseText_,
+     renderText,
+    )
+import Text.XML.Cursor
+    (
+     Cursor(..),
+     ($//),
+     (&/),
+     attribute,
+     element,
+     fromDocument
+    )
+import Text.XML.Stream.Parse
+    (
+     def,
+     force,
+     optionalAttr,
+     parseBytes,
+     requireAttr,
+     tagName,
+     tagNoAttr
+    )
 import Foreign.Storable (sizeOf)
 
 data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex
@@ -85,25 +127,78 @@ data Header = Header {
       reservedSpace :: BS.ByteString
 } deriving (Eq, Show)
 
-newtype Metadata = Metadata Text deriving (Eq, Show)
+data FieldValue = FVBool Bool
+                | FVByte Int8
+                | FVInt16 Int16
+                | FVInt32 Int32
+                | FVInt64 Int64
+                | FVFixedDecimal Decimal
+                | FVFloat Float
+                | FVDouble Double
+                | FVString Text
+                | FVWString Text
+                | FVVString Text
+                | FVVWString Text
+                | FVDate Day
+                | FVTime DiffTime
+                | FVDateTime UTCTime
+                | FVBlob ByteString
+                | FVSpatialObject ByteString
+                | FVUnknown
+                deriving (Eq, Show)
+
+data FieldType = FTBool
+               | FTByte
+               | FTInt16
+               | FTInt32
+               | FTInt64
+               | FTFixedDecimal
+               | FTFloat
+               | FTDouble
+               | FTString
+               | FTWString
+               | FTVString
+               | FTVWString
+               | FTDate -- yyyy-mm-dd
+               | FTTime -- hh:mm:ss
+               | FTDateTime -- yyyy-mm-dd hh:mm:ss
+               | FTBlob
+               | FTSpatialObject
+               | FTUnknown
+               deriving (Eq, Ord, Show)
+
+data Field = Field {
+      fieldName  :: Text,
+      fieldType  :: FieldType,
+      fieldSize  :: Maybe Int,
+      fieldScale :: Maybe Int
+} deriving (Eq, Show)
+
+newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
+newtype Metadata = Metadata [ RecordInfo ] deriving (Eq, Show)
 newtype Content = Content BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 
-numMetadataBytes :: Header -> Int
-numMetadataBytes header = fromIntegral $ 2 * (metaInfoLength $ header)
+numBytes x = fromIntegral $ BSL.length $ runPut $ put x
+
+numMetadataBytesHeader :: Header -> Int
+numMetadataBytesHeader header = fromIntegral $ 2 * (metaInfoLength $ header)
+
+numMetadataBytesActual :: Metadata -> Int
+numMetadataBytesActual metadata = numBytes metadata
 
 numContentBytesHeader :: Header -> Int
 numContentBytesHeader header =
-    let start = headerPageSize + (numMetadataBytes header)
+    let start = headerPageSize + (numMetadataBytesHeader header)
         end =  (fromIntegral $ recordBlockIndexPos header)
     in end - start
 
 numContentBytesActual :: Content -> Int
-numContentBytesActual content = fromIntegral $ BSL.length $ runPut $ put content
+numContentBytesActual content = numBytes content
 
 startOfContentByteIndex :: Header -> Int
 startOfContentByteIndex header =
-    headerPageSize + (numMetadataBytes header)
+    headerPageSize + (numMetadataBytesHeader header)
 
 instance Binary YxdbFile where
     put yxdbFile = do
@@ -114,7 +209,7 @@ instance Binary YxdbFile where
 
     get = do
       fHeader     <- label "Header" $ isolate (fromIntegral headerPageSize) get
-      fMetadata   <- label "Metadata" $ isolate (numMetadataBytes fHeader) $ get
+      fMetadata   <- label "Metadata" $ isolate (numMetadataBytesHeader fHeader) $ get
 
       metadataEnd <- fromIntegral <$> bytesRead
       let numContentBytes = (fromIntegral $ recordBlockIndexPos fHeader) - metadataEnd
@@ -130,13 +225,117 @@ instance Binary YxdbFile where
       }
 
 instance Binary Metadata where
-    put (Metadata metadata) = do
-      putByteString $ encodeUtf16LE metadata
+    put metadata =
+      let fieldMap field =
+              let
+                  requiredAttributes =
+                      [
+                       ("name", fieldName field),
+                       ("type", renderFieldType $ fieldType field)
+                      ]
+                  sizeAttributes =
+                      case fieldSize field of
+                        Nothing -> [ ]
+                        Just x -> [ ("size", T.pack $ show x) ]
+                  scaleAttributes =
+                      case fieldScale field of
+                        Nothing -> [ ]
+                        Just x -> [ ("scale", T.pack $ show x) ]
+              in Map.fromList $
+                 Prelude.concat $
+                 [ requiredAttributes, sizeAttributes, scaleAttributes ]
+          transformField field =
+              NodeElement $
+              Element "Field" (fieldMap field) [ ]
+          transformRecordInfo (RecordInfo fields ) =
+              NodeElement $
+              Element "RecordInfo" Map.empty $
+              Prelude.map transformField fields
+          transformMetaInfo (Metadata recordInfos) =
+              Element "MetaInfo" Map.empty $
+              Prelude.map transformRecordInfo recordInfos
+          transformToDocument node = Document (Prologue [] Nothing []) node []
+
+          renderMetaInfo metadata =
+              encodeUtf16LE $
+              TL.toStrict $
+              renderText def $
+              transformToDocument $
+              transformMetaInfo metadata
+      in putByteString $ renderMetaInfo metadata
 
     get = do
-      metadataBS <- BS.concat . BSL.toChunks <$> getRemainingLazyByteString
-      let metadata = decodeUtf16LE metadataBS
-      return $ Metadata metadata
+      text <- decodeUtf16LE <$> BS.concat . BSL.toChunks <$> getRemainingLazyByteString
+      let document = parseText_ def $ TL.fromStrict text
+      let cursor = fromDocument document
+      let recordInfos = parseXmlRecordInfo cursor
+      return $ Metadata recordInfos
+
+parseXmlField :: Cursor -> [Field]
+parseXmlField cursor = do
+  let fieldCursors = cursor $// element "Field"
+  fieldCursor <- fieldCursors
+
+  aName <- attribute "name" fieldCursor
+  aType <- attribute "type" fieldCursor
+
+  let aDesc = listToMaybe $ attribute "description" fieldCursor
+  let aSize = listToMaybe $ attribute "size" fieldCursor
+  let aScale = listToMaybe $ attribute "scale" fieldCursor
+
+  return $ Field {
+               fieldName  = aName,
+               fieldType  = parseFieldType aType,
+               fieldSize  = parseInt <$> aSize,
+               fieldScale = parseInt <$> aScale
+             }
+
+parseXmlRecordInfo :: Cursor -> [RecordInfo]
+parseXmlRecordInfo cursor = do
+  let recordInfoCursors = cursor $// element "RecordInfo"
+  recordInfoCursor <- recordInfoCursors
+  let fields = parseXmlField recordInfoCursor
+  return $ RecordInfo fields
+
+parseInt :: Text -> Int
+parseInt text = read $ T.unpack text :: Int
+
+fieldTypeMap :: Bimap FieldType Text
+fieldTypeMap =
+    Bimap.fromList
+    [
+     (FTBool,          "Bool"),
+     (FTByte,          "Byte"),
+     (FTInt16,         "Int16"),
+     (FTInt32,         "Int32"),
+     (FTInt64,         "Int64"),
+     (FTFixedDecimal,  "FixedDecimal"),
+     (FTFloat,         "Float"),
+     (FTDouble,        "Double"),
+     (FTString,        "String"),
+     (FTWString,       "WString"),
+     (FTVString,       "V_String"),
+     (FTVWString,      "V_WString"),
+     (FTDate,          "Date"),
+     (FTTime,          "Time"),
+     (FTDateTime,      "DateTime"),
+     (FTBlob,          "Blob"),
+     (FTSpatialObject, "SpatialObj"),
+     (FTUnknown,       "Unknown")
+    ]
+
+
+parseFieldType :: Text -> FieldType
+parseFieldType text =
+    case Bimap.lookupR text fieldTypeMap of
+      Nothing -> FTUnknown
+      Just x -> x
+
+renderFieldType :: FieldType -> Text
+renderFieldType fieldType =
+    case Bimap.lookup fieldType fieldTypeMap of
+      Nothing -> error $ "No field type assigned to " ++ show fieldType
+      Just x -> x
 
 instance Binary Content where
     get = do
@@ -240,22 +439,10 @@ instance Binary Header where
             flags1              = fFlags1,
             flags2              = fFlags2,
             metaInfoLength      = fMetaInfoLength,
-            mystery             = fMystery, 
+            mystery             = fMystery,
             spatialIndexPos     = fSpatialIndexPos,
             recordBlockIndexPos = fRecordBlockIndexPos,
             numRecords          = fNumRecords,
             compressionVersion  = fCompressionVersion,
             reservedSpace       = fReservedSpace
         }
-
--- parseYxdb :: Handle -> IO YxdbFile
--- parseYxdb handle = do
---   fCopyright <- hGetLine handle
-
--- type XField = Field {
---       name :: Text,
---       source :: Text,
--- }
--- type XRecordInfo = XRecordInfo [XField]
-
--- type DB = DB Header Body
