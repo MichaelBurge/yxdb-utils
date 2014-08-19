@@ -26,6 +26,7 @@ compressLazyByteString :: BSL.ByteString -> BSL.ByteString
 compressLazyByteString = mapChunks compressByteString
 
 -- TODO: Calling allocaBytes every time might be inefficient
+-- As are the copies implied by useAsCStringLen and packCStringLen
 _runFunctionInNewBufferSafe f bs numOutputBytes = do
   BS.useAsCStringLen bs $ \(input, len) ->
     if len == 0
@@ -39,14 +40,20 @@ _runFunctionInNewBufferSafe f bs numOutputBytes = do
                 bs <- BS.packCStringLen(output, res)
                 return $ Just bs
 
-_runFunctionInNewBufferWithSizeGuess f bs = do
-  let initialGuess = BS.length bs
-  let try size = do
-        result <- _runFunctionInNewBufferSafe f bs size
-        case result of
-          Nothing -> try $ size * 2
-          Just bs -> return $ bs
-  try initialGuess
+_runFunctionInNewBufferWithSizeGuess f bs =
+    if BS.null bs
+    then return $ BS.empty
+    else do
+           let initialGuess = 2 * (BS.length bs)
+           let try size = do
+               when (size <= 0) $
+                   fail $
+                   "Codec.Compression.LZF.ByteString: Invalid size" ++ show size
+               result <- _runFunctionInNewBufferSafe f bs size
+               case result of
+                 Nothing -> try $ size * 2
+                 Just bs -> return $ bs
+           try initialGuess
 
 decompressByteString :: BS.ByteString -> BS.ByteString
 decompressByteString bs =

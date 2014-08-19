@@ -80,7 +80,6 @@ test-suite yxdb-tests
     conduit,
     conduit-extra,
     containers,
-    derive,
     directory,
     encoding,
     quickcheck-instances,

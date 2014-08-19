@@ -20,7 +20,7 @@ module Database.Alteryx(
 
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
 import Control.Applicative
-import Control.Monad (liftM, msum, replicateM)
+import Control.Monad (liftM, msum, replicateM, when)
 import Control.Monad.Trans.Resource (runResourceT)
 import Data.Array.IArray (listArray, bounds, elems)
 import Data.Array.Unboxed (UArray)
@@ -259,13 +259,18 @@ instance Binary Metadata where
           renderMetaInfo metadata =
               encodeUtf16LE $
               TL.toStrict $
+              flip TL.snoc '\0' $
+              flip TL.snoc '\n' $
               renderText def $
               transformToDocument $
               transformMetaInfo metadata
       in putByteString $ renderMetaInfo metadata
 
     get = do
-      text <- decodeUtf16LE <$> BS.concat . BSL.toChunks <$> getRemainingLazyByteString
+      bs <- BS.concat . BSL.toChunks <$>
+            getRemainingLazyByteString
+      when (BS.length bs < 4) $ fail $ "No trailing newline and null: " ++ show bs
+      let text = T.init $ T.init $ decodeUtf16LE bs
       let document = parseText_ def $ TL.fromStrict text
       let cursor = fromDocument document
       let recordInfos = parseXmlRecordInfo cursor
