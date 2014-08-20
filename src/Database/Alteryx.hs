@@ -9,7 +9,15 @@ module Database.Alteryx(
   FieldValue(..),
   FieldType(..),
   Field(..),
+  Record(..),
   RecordInfo(..),
+
+  putValue,
+  getValue,
+
+  getRecord,
+  putRecord,
+
   headerPageSize,
   numMetadataBytesActual,
   numMetadataBytesHeader,
@@ -113,7 +121,6 @@ data YxdbFile = YxdbFile {
       header     :: Header,
       metadata   :: Metadata,
       records    :: [Record],
-      blocks     :: Blocks,
       blockIndex :: BlockIndex
 } deriving (Eq, Show)
 
@@ -180,6 +187,7 @@ data Field = Field {
 } deriving (Eq, Show)
 
 newtype Record = Record [ FieldValue ] deriving (Eq, Show)
+-- TODO: RecordInfo and Metadata are redundant
 newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
 newtype Metadata = Metadata RecordInfo deriving (Eq, Show)
 newtype Blocks = Blocks BSL.ByteString deriving (Eq, Show)
@@ -220,7 +228,7 @@ instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
       put $ metadata yxdbFile
-      put $ blocks yxdbFile
+      mapM_ putRecord $ records yxdbFile
       put $ blockIndex yxdbFile
 
     get = do
@@ -230,7 +238,7 @@ instance Binary YxdbFile where
       let numBlocksBytes = numBlocksBytesHeader $ fHeader
 
       fBlocks    <- label ("Blocks of size " ++ show numBlocksBytes) $
-                    isolate numBlocksBytes get
+                    isolate numBlocksBytes get :: Get Blocks
       fBlockIndex <- label "Block Index" get
       let recordInfo = NT.unpack fMetadata
       let fRecords = runGet (label "Records" $ parseRecordsUntil recordInfo) $ NT.unpack fBlocks
@@ -239,7 +247,6 @@ instance Binary YxdbFile where
         header     = fHeader,
         metadata   = fMetadata,
         records    = fRecords,
-        blocks     = fBlocks,
         blockIndex = fBlockIndex
       }
 
