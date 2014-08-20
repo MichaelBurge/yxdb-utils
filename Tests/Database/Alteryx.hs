@@ -148,13 +148,11 @@ instance Arbitrary Field where
 
 instance Arbitrary RecordInfo where
     arbitrary = do
-      len <- choose(1,1)
+      len <- choose(1,10)
       RecordInfo <$> vector len
 
 instance Arbitrary Metadata where
-    arbitrary = do
-      len <- choose(1,10)
-      Metadata <$> vector len
+    arbitrary = Metadata <$> arbitrary
 
 instance Arbitrary BlockIndex where
     arbitrary =

@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings,MultiParamTypeClasses #-}
 
 module Database.Alteryx(
   BlockIndex(..),
@@ -19,6 +19,7 @@ module Database.Alteryx(
 ) where
 
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
+import qualified Control.Newtype as NT
 import Control.Applicative
 import Control.Monad as M (liftM, msum, replicateM, when, zipWithM_)
 import Control.Monad.Trans.Resource (runResourceT)
@@ -111,6 +112,7 @@ dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 data YxdbFile = YxdbFile {
       header     :: Header,
       metadata   :: Metadata,
+      records    :: [Record],
       blocks     :: Blocks,
       blockIndex :: BlockIndex
 } deriving (Eq, Show)
@@ -179,7 +181,7 @@ data Field = Field {
 
 newtype Record = Record [ FieldValue ] deriving (Eq, Show)
 newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
-newtype Metadata = Metadata [ RecordInfo ] deriving (Eq, Show)
+newtype Metadata = Metadata RecordInfo deriving (Eq, Show)
 newtype Blocks = Blocks BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 
@@ -204,6 +206,16 @@ startOfBlocksByteIndex :: Header -> Int
 startOfBlocksByteIndex header =
     headerPageSize + (numMetadataBytesHeader header)
 
+parseRecordsUntil :: RecordInfo -> Get [Record]
+parseRecordsUntil recordInfo = do
+  done <- isEmpty
+  if done
+    then return $ []
+    else do
+      record <- getRecord recordInfo
+      records <- parseRecordsUntil recordInfo
+      return $ (:) record records
+
 instance Binary YxdbFile where
     put yxdbFile = do
       put $ header yxdbFile
@@ -215,18 +227,29 @@ instance Binary YxdbFile where
       fHeader     <- label "Header" $ isolate (fromIntegral headerPageSize) get
       fMetadata   <- label "Metadata" $ isolate (numMetadataBytesHeader fHeader) $ get
 
-      metadataEnd <- fromIntegral <$> bytesRead
-      let numBlocksBytes = (fromIntegral $ recordBlockIndexPos fHeader) - metadataEnd
+      let numBlocksBytes = numBlocksBytesHeader $ fHeader
 
-      fBlocks    <- label "Blocks" $ isolate numBlocksBytes get
+      fBlocks    <- label ("Blocks of size " ++ show numBlocksBytes) $
+                    isolate numBlocksBytes get
       fBlockIndex <- label "Block Index" get
+      let recordInfo = NT.unpack fMetadata
+      let fRecords = runGet (label "Records" $ parseRecordsUntil recordInfo) $ NT.unpack fBlocks
 
       return $ YxdbFile {
         header     = fHeader,
         metadata   = fMetadata,
+        records    = fRecords,
         blocks     = fBlocks,
         blockIndex = fBlockIndex
       }
+
+instance NT.Newtype Metadata RecordInfo where
+    pack = Metadata
+    unpack (Metadata x) = x
+
+instance NT.Newtype Blocks BSL.ByteString where
+    pack = Blocks
+    unpack (Blocks x) = x
 
 instance Binary Metadata where
     put metadata =
@@ -255,9 +278,8 @@ instance Binary Metadata where
               NodeElement $
               Element "RecordInfo" Map.empty $
               Prelude.map transformField fields
-          transformMetaInfo (Metadata recordInfos) =
-              Element "MetaInfo" Map.empty $
-              Prelude.map transformRecordInfo recordInfos
+          transformMetaInfo (Metadata recordInfo) =
+              Element "MetaInfo" Map.empty [ transformRecordInfo recordInfo]
           transformToDocument node = Document (Prologue [] Nothing []) node []
 
           renderMetaInfo metadata =
@@ -278,7 +300,10 @@ instance Binary Metadata where
       let document = parseText_ def $ TL.fromStrict text
       let cursor = fromDocument document
       let recordInfos = parseXmlRecordInfo cursor
-      return $ Metadata recordInfos
+      case recordInfos of
+        [] -> fail "No RecordInfo entries found"
+        x:[] -> return $ Metadata $ x
+        otherwise -> fail "Too many RecordInfo entries found"
 
 parseXmlField :: Cursor -> [Field]
 parseXmlField cursor = do
@@ -371,6 +396,7 @@ putValue value = do
     FVDouble x        -> do
       let y = realToFrac x :: CDouble
       put y
+      putWord8 0
     FVString x        -> error "putString unimplemented"
     FVWString x       -> error "putWString unimplemented"
     FVVString x       -> error "putVString unimplemented"
@@ -394,6 +420,7 @@ getValue field =
       FTFloat         -> error "getFloat unimplemented"
       FTDouble        -> do
         double <- get :: Get CDouble
+        _ <- getWord8
         return $ FVDouble $ realToFrac double
       FTString        -> error "getString unimplemented"
       FTWString       -> error "getWString unimplemented"
