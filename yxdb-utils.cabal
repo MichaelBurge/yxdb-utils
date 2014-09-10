@@ -41,9 +41,33 @@ build-type:          Simple
 -- Constraint on the version of Cabal needed to build this package.
 cabal-version:       >=1.8
 
+executable csv2yxdb
+  hs-source-dirs: src
+  main-is: Main.hs
+  build-depends:
+    array,
+    base == 4.*,
+    bimap,
+    binary,
+    Codec-Compression-LZF,
+    bytestring,
+    conduit,
+    containers,
+    Decimal,
+    ghc-prim,
+    lens,
+    newtype,
+    reinterpret-cast,
+    resourcet,
+    text,
+    time,
+    yxdb-utils,
+    xml-conduit
 library
   hs-source-dirs: src
   exposed-modules:
+    Codec.Compression.LZF.ByteString,
+    Data.Binary.C,
     Database.Alteryx
   build-depends:
     Codec-Compression-LZF,
