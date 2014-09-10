@@ -69,6 +69,7 @@ library
     Codec.Compression.LZF.ByteString,
     Data.Binary.C,
     Database.Alteryx
+    Database.Alteryx.Fields
   build-depends:
     Codec-Compression-LZF,
     array,

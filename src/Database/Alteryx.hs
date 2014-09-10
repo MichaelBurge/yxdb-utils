@@ -26,6 +26,8 @@ module Database.Alteryx(
   startOfBlocksByteIndex
 ) where
 
+import Database.Alteryx.Fields
+
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
 import qualified Control.Newtype as NT
 import Control.Applicative
@@ -33,59 +35,24 @@ import Control.Monad as M (liftM, msum, replicateM, when, zipWithM_)
 import Control.Monad.Trans.Resource (runResourceT)
 import Data.Array.IArray (listArray, bounds, elems)
 import Data.Array.Unboxed (UArray)
-import Data.Bimap as Bimap (Bimap(..), fromList, lookup, lookupR)
 import Data.Binary
 import Data.Binary.C ()
 import Data.Binary.Get
-    (
-     bytesRead,
-     getByteString,
-     getRemainingLazyByteString,
-     getWord16le,
-     getWord32le,
-     getWord64le,
-     isEmpty,
-     isolate,
-     Get(..),
-     label,
-     remaining,
-     runGet
-    )
-import Data.Binary.C
 import Data.Binary.Put
-    (
-     putByteString,
-     putWord32le,
-     putWord64le,
-     flush,
-     Put(..),
-     runPut
-    )
 import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Lazy.Char8 as BSC
 import Data.Conduit (($$), ($=), Sink(..), yield)
-import Data.Decimal (Decimal(..))
 import Data.Int
 import qualified Data.Map as Map
 import Data.Maybe (isJust, listToMaybe)
 import Data.Text as T
 import Data.Text.Encoding (decodeUtf16LE, encodeUtf16LE)
 import qualified Data.Text.Lazy as TL
-import Data.Time.Calendar (Day(..))
-import Data.Time.Clock (UniversalTime(..), UTCTime(..), DiffTime(..))
 import Foreign.C.Types
 import System.IO.Unsafe (unsafePerformIO)
 import Text.XML
-    (
-     Document(..),
-     Element(..),
-     Node(..),
-     Prologue(..),
-     parseText_,
-     renderText,
-    )
 import Text.XML.Cursor
     (
      Cursor(..),
@@ -96,15 +63,6 @@ import Text.XML.Cursor
      fromDocument
     )
 import Text.XML.Stream.Parse
-    (
-     def,
-     force,
-     optionalAttr,
-     parseBytes,
-     requireAttr,
-     tagName,
-     tagNoAttr
-    )
 import Foreign.Storable (sizeOf)
 
 data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex
@@ -139,52 +97,6 @@ data Header = Header {
       reservedSpace :: BS.ByteString
 } deriving (Eq, Show)
 
-data FieldValue = FVBool Bool
-                | FVByte Int8
-                | FVInt16 Int16
-                | FVInt32 Int32
-                | FVInt64 Int64
-                | FVFixedDecimal Decimal
-                | FVFloat Float
-                | FVDouble Double
-                | FVString Text
-                | FVWString Text
-                | FVVString Text
-                | FVVWString Text
-                | FVDate Day
-                | FVTime DiffTime
-                | FVDateTime UTCTime
-                | FVBlob ByteString
-                | FVSpatialObject ByteString
-                | FVUnknown
-                deriving (Eq, Show)
-
-data FieldType = FTBool
-               | FTByte
-               | FTInt16
-               | FTInt32
-               | FTInt64
-               | FTFixedDecimal
-               | FTFloat
-               | FTDouble
-               | FTString
-               | FTWString
-               | FTVString
-               | FTVWString
-               | FTDate -- yyyy-mm-dd
-               | FTTime -- hh:mm:ss
-               | FTDateTime -- yyyy-mm-dd hh:mm:ss
-               | FTBlob
-               | FTSpatialObject
-               | FTUnknown
-               deriving (Eq, Ord, Show)
-
-data Field = Field {
-      fieldName  :: Text,
-      fieldType  :: FieldType,
-      fieldSize  :: Maybe Int,
-      fieldScale :: Maybe Int
-} deriving (Eq, Show)
 
 newtype Record = Record [ FieldValue ] deriving (Eq, Show)
 -- TODO: RecordInfo and Metadata are redundant
@@ -193,6 +105,7 @@ newtype Metadata = Metadata RecordInfo deriving (Eq, Show)
 newtype Blocks = Blocks BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 
+numBytes :: (Binary b, Num t) => b -> t
 numBytes x = fromIntegral $ BSL.length $ runPut $ put x
 
 numMetadataBytesHeader :: Header -> Int
@@ -341,43 +254,6 @@ parseXmlRecordInfo cursor = do
 parseInt :: Text -> Int
 parseInt text = read $ T.unpack text :: Int
 
-fieldTypeMap :: Bimap FieldType Text
-fieldTypeMap =
-    Bimap.fromList
-    [
-     (FTBool,          "Bool"),
-     (FTByte,          "Byte"),
-     (FTInt16,         "Int16"),
-     (FTInt32,         "Int32"),
-     (FTInt64,         "Int64"),
-     (FTFixedDecimal,  "FixedDecimal"),
-     (FTFloat,         "Float"),
-     (FTDouble,        "Double"),
-     (FTString,        "String"),
-     (FTWString,       "WString"),
-     (FTVString,       "V_String"),
-     (FTVWString,      "V_WString"),
-     (FTDate,          "Date"),
-     (FTTime,          "Time"),
-     (FTDateTime,      "DateTime"),
-     (FTBlob,          "Blob"),
-     (FTSpatialObject, "SpatialObj"),
-     (FTUnknown,       "Unknown")
-    ]
-
-
-parseFieldType :: Text -> FieldType
-parseFieldType text =
-    case Bimap.lookupR text fieldTypeMap of
-      Nothing -> FTUnknown
-      Just x -> x
-
-renderFieldType :: FieldType -> Text
-renderFieldType fieldType =
-    case Bimap.lookup fieldType fieldTypeMap of
-      Nothing -> error $ "No field type assigned to " ++ show fieldType
-      Just x -> x
-
 instance Binary Blocks where
     get = do
       chunks <- getBlocks
@@ -389,56 +265,6 @@ putRecord (Record fieldValues) = mapM_ putValue fieldValues
 
 getRecord :: RecordInfo -> Get Record
 getRecord (RecordInfo fields) = Record <$> mapM getValue fields
-
-putValue :: FieldValue -> Put
-putValue value = do
-  case value of
-    FVBool x          -> error "putBool unimplemented"
-    FVByte x          -> error "putByte unimplemented"
-    FVInt16 x         -> error "putInt16 unimplemented"
-    FVInt32 x         -> error "putInt32 unimplemented"
-    FVInt64 x         -> error "putInt64 unimplemented"
-    FVFixedDecimal x  -> error "putFixedDecimal unimplemented"
-    FVFloat x         -> error "putFloat unimplemented"
-    FVDouble x        -> do
-      let y = realToFrac x :: CDouble
-      put y
-      putWord8 0
-    FVString x        -> error "putString unimplemented"
-    FVWString x       -> error "putWString unimplemented"
-    FVVString x       -> error "putVString unimplemented"
-    FVVWString x      -> error "putVWString unimplemented"
-    FVDate x          -> error "putDate unimplemented"
-    FVTime x          -> error "putTime unimplemented"
-    FVDateTime x      -> error "putDateTime unimplemented"
-    FVBlob x          -> error "putBlob unimplemented"
-    FVSpatialObject x -> error "putSpatialObject unimplemented"
-    FVUnknown       -> error "putUnknown unimplemented"
-
-getValue :: Field -> Get FieldValue
-getValue field =
-    case fieldType field of
-      FTBool          -> error "getBool unimplemented"
-      FTByte          -> error "getByte unimplemented"
-      FTInt16         -> error "getInt16 unimplemented"
-      FTInt32         -> error "getInt32 unimplemented"
-      FTInt64         -> error "getInt64 unimplemented"
-      FTFixedDecimal  -> error "getFixedDecimal unimplemented"
-      FTFloat         -> error "getFloat unimplemented"
-      FTDouble        -> do
-        double <- get :: Get CDouble
-        _ <- getWord8
-        return $ FVDouble $ realToFrac double
-      FTString        -> error "getString unimplemented"
-      FTWString       -> error "getWString unimplemented"
-      FTVString       -> error "getVString unimplemented"
-      FTVWString      -> error "getVWString unimplemented"
-      FTDate          -> error "getDate unimplemented"
-      FTTime          -> error "getTime unimplemented"
-      FTDateTime      -> error "getDateTime unimplemented"
-      FTBlob          -> error "getBlob unimplemented"
-      FTSpatialObject -> error "getSpatialObject unimplemented"
-      FTUnknown       -> error "getUnknown unimplemented"
 
 
 instance Binary BlockIndex where
