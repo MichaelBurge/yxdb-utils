@@ -2,9 +2,15 @@
 
 import Database.Alteryx
 
+import Control.Applicative
 import Control.Lens
+import Control.Monad.Trans.Resource
+import qualified Data.ByteString as BS
+import Data.Conduit
+import Data.Conduit.Binary
 import System.Console.GetOpt
 import System.Environment
+import System.IO
 
 data Settings = Settings {
   _settingVerbose  :: Bool,
@@ -42,4 +48,19 @@ getSettings = do
   options <- parseOptions argv
   return $ processOptions options
 
-main = putStrLn "hello"
+getSource :: Settings -> Source (ResourceT IO) BS.ByteString
+getSource settings =
+  case settings ^. settingFilename of
+    Just filename -> sourceFile filename
+    Nothing       -> sourceHandle stdin
+
+runYxdb2Csv :: Settings -> IO ()
+runYxdb2Csv settings =
+  runResourceT $
+    getSource settings $=
+    bytes2yxdb =$=
+    yxdb2csv =$=
+    csv2bytes $$
+    sinkHandle stdout
+
+main = runYxdb2Csv <$> getSettings

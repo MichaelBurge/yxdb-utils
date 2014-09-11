@@ -1,16 +1,14 @@
-{-# LANGUAGE OverloadedStrings,MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell,OverloadedStrings,MultiParamTypeClasses #-}
 
 module Database.Alteryx.Fields
        (
-         FieldValue(..),
-         FieldType(..),
-         Field(..),
          getValue,
          parseFieldType,
          putValue,
          renderFieldType
        ) where
 
+import Control.Lens
 import Data.Bimap as Bimap (Bimap(..), fromList, lookup, lookupR)
 import Data.Binary
 import Data.Binary.C()
@@ -22,53 +20,7 @@ import Data.Text as T
 import Data.Time
 import Foreign.C.Types
 
-data FieldValue = FVBool Bool
-                | FVByte Int8
-                | FVInt16 Int16
-                | FVInt32 Int32
-                | FVInt64 Int64
-                | FVFixedDecimal Decimal
-                | FVFloat Float
-                | FVDouble Double
-                | FVString Text
-                | FVWString Text
-                | FVVString Text
-                | FVVWString Text
-                | FVDate Day
-                | FVTime DiffTime
-                | FVDateTime UTCTime
-                | FVBlob BSL.ByteString
-                | FVSpatialObject BSL.ByteString
-                | FVUnknown
-                deriving (Eq, Show)
-
-data FieldType = FTBool
-               | FTByte
-               | FTInt16
-               | FTInt32
-               | FTInt64
-               | FTFixedDecimal
-               | FTFloat
-               | FTDouble
-               | FTString
-               | FTWString
-               | FTVString
-               | FTVWString
-               | FTDate -- yyyy-mm-dd
-               | FTTime -- hh:mm:ss
-               | FTDateTime -- yyyy-mm-dd hh:mm:ss
-               | FTBlob
-               | FTSpatialObject
-               | FTUnknown
-               deriving (Eq, Ord, Show)
-
-data Field = Field {
-      fieldName  :: Text,
-      fieldType  :: FieldType,
-      fieldSize  :: Maybe Int,
-      fieldScale :: Maybe Int
-} deriving (Eq, Show)
-
+import Database.Alteryx.Types
 
 fieldTypeMap :: Bimap FieldType Text
 fieldTypeMap =
@@ -93,7 +45,7 @@ fieldTypeMap =
      (FTSpatialObject, "SpatialObj"),
      (FTUnknown,       "Unknown")
     ]
-    
+
 putValue :: FieldValue -> Put
 putValue value = do
   case value of
@@ -121,7 +73,7 @@ putValue value = do
 
 getValue :: Field -> Get FieldValue
 getValue field =
-    case fieldType field of
+    case field ^. fieldType of
       FTBool          -> error "getBool unimplemented"
       FTByte          -> error "getByte unimplemented"
       FTInt16         -> error "getInt16 unimplemented"

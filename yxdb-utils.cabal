@@ -49,11 +49,15 @@ executable csv2yxdb
     base == 4.*,
     bimap,
     binary,
+    binary-conduit,
     Codec-Compression-LZF,
+    conduit-extra,
     bytestring,
     conduit,
+    conduit-combinators,
     containers,
     Decimal,
+    exceptions,
     ghc-prim,
     lens,
     newtype,
@@ -63,27 +67,36 @@ executable csv2yxdb
     time,
     yxdb-utils,
     xml-conduit
+
 library
   hs-source-dirs: src
   exposed-modules:
     Codec.Compression.LZF.ByteString,
     Data.Binary.C,
     Database.Alteryx
+  other-modules:
+    Database.Alteryx.CSVConversion
     Database.Alteryx.Fields
+    Database.Alteryx.Serialization
+    Database.Alteryx.Types
   build-depends:
     Codec-Compression-LZF,
     array,
     base ==4.*,
     bimap,
     binary >0.7.2,
+    binary-conduit,
     bytestring,
     conduit,
+    conduit-combinators,
     conduit-extra,
     containers,
     Decimal,
     directory,
     encoding,
+    exceptions,
     ghc-prim,
+    lens,
     newtype,
     reinterpret-cast,
     resourcet,
@@ -104,13 +117,17 @@ test-suite yxdb-tests
     base -any,
     bimap,
     binary,
+    binary-conduit,
     bytestring,
     conduit,
+    conduit-combinators,
     conduit-extra,
     containers,
     directory,
     encoding,
+    exceptions,
     ghc-prim,
+    lens,
     newtype,
     quickcheck-instances,
     reinterpret-cast,
