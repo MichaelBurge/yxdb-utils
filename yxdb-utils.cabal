@@ -67,8 +67,10 @@ executable csv2yxdb
     time,
     yxdb-utils,
     xml-conduit
+  ghc-options: -O2 -auto-all
 
 library
+  ghc-options: -O2
   hs-source-dirs: src
   exposed-modules:
     Codec.Compression.LZF.ByteString,
