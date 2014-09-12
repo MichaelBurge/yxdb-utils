@@ -60,6 +60,7 @@ executable csv2yxdb
     exceptions,
     ghc-prim,
     lens,
+    mtl,
     newtype,
     reinterpret-cast,
     resourcet,

@@ -10,6 +10,7 @@ import Control.Monad
 import Data.Array.IArray
 import Data.ByteString as BS
 import Data.ByteString.Lazy as BSL
+import Data.Text.Encoding
 import Data.Word
 import Test.QuickCheck
 import Test.QuickCheck.Instances()
@@ -56,7 +57,7 @@ arbitraryHeaderMatching metadata blocks = do
   fCompressionVersion <- arbitrary
   fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
   return $ Header {
-               _description         = BS.pack fDescription,
+               _description         = decodeUtf16LE $ BS.pack fDescription,
                _fileId              = fFileId,
                _creationDate        = fCreationDate,
                _flags1              = fFlags1,

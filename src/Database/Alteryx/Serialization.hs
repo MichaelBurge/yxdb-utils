@@ -37,7 +37,7 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as Map
 import Data.Maybe (isJust, listToMaybe)
 import Data.Text as T
-import Data.Text.Encoding (decodeUtf16LE, encodeUtf16LE)
+import Data.Text.Encoding
 import qualified Data.Text.Lazy as TL
 import Text.XML
 import Text.XML.Cursor as XMLC
@@ -271,7 +271,12 @@ putBlock bs = do
 
 instance Binary Header where
     put header = do
-      putByteString $ header ^. description
+      let actualDescriptionBS  = encodeUtf8 $ header ^. description
+      let numPaddingBytes      = fromIntegral $ 64 - BS.length actualDescriptionBS
+      let paddingDescriptionBS = BSL.toStrict $ BSL.take numPaddingBytes $ BSL.repeat 0
+      
+      putByteString actualDescriptionBS
+      putByteString paddingDescriptionBS
       putWord32le   $ header ^. fileId
       putWord32le   $ header ^. creationDate
       putWord32le   $ header ^. flags1
@@ -285,7 +290,7 @@ instance Binary Header where
       putByteString $ header ^. reservedSpace
 
     get = do
-        fDescription         <- label "Description" $       getByteString 64
+        fDescription         <- label "Description" $ decodeUtf8 <$> getByteString 64
         fFileId              <- label "FileId"              getWord32le
         fCreationDate        <- label "Creation Date"       getWord32le
         fFlags1              <- label "Flags 1"             getWord32le

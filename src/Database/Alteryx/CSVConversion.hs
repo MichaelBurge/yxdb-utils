@@ -2,8 +2,11 @@
 
 module Database.Alteryx.CSVConversion
     (
-     bytes2yxdb,
      csv2bytes,
+     record2csv,
+
+     -- Slow, don't use these
+     bytes2yxdb,
      yxdb2csv
     ) where
 
@@ -38,13 +41,13 @@ yxdb2csv = do
     Just yxdbFile ->
       let recordSource = yieldMany $ yxdbFile ^. records
       in do
-        line <- recordSource $= record2csvBuilder $$ fold
+        line <- recordSource $= record2csv $$ fold
         yield line
         yxdb2csv
     Nothing -> return ()
 
-record2csvBuilder :: Monad m => Conduit Record m T.Text
-record2csvBuilder = do
+record2csv :: Monad m => Conduit Record m T.Text
+record2csv = do
   mRecord <- await
   case mRecord of
     Just record -> do
@@ -52,7 +55,7 @@ record2csvBuilder = do
                  Prelude.map (TL.toStrict . TB.toLazyText . renderFieldValue) $
                  NT.unpack record
       yield $ line `mappend` "\n"
-      record2csvBuilder
+      record2csv
     Nothing -> return ()
 
 renderFieldValue :: Maybe FieldValue -> TB.Builder

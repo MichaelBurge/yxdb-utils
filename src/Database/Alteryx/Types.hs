@@ -29,7 +29,7 @@ data YxdbFile = YxdbFile {
 } deriving (Eq, Show)
 
 data Header = Header {
-      _description         :: BS.ByteString, -- 64 bytes
+      _description         :: Text,
       _fileId              :: Word32,
       _creationDate        :: Word32, -- TODO: Confirm whether this is UTC or user's local time
       _flags1              :: Word32,
