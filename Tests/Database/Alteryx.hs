@@ -1,34 +1,11 @@
 module Tests.Database.Alteryx (yxdbTests) where
 
 import Database.Alteryx
-  (
-    BlockIndex(..),
-    Header(..),
-    Blocks(..),
-    Metadata(..),
-    YxdbFile(..),
-    FieldType(..),
-    FieldValue(..),
-    Field(..),
-    RecordInfo(..),
-    Record(..),
-
-    getRecord,
-    putRecord,
-
-    getValue,
-    putValue,
-
-    headerPageSize,
-    numBlocksBytesHeader,
-    numBlocksBytesActual,
-    numMetadataBytesActual,
-    numMetadataBytesHeader
-  )
 
 import Prelude hiding (readFile)
 
 import Control.Applicative
+import Control.Lens hiding (elements)
 import Control.Monad (replicateM, when)
 import Data.Array.IArray (listArray)
 import Data.Binary
@@ -64,13 +41,13 @@ instance Arbitrary YxdbFile where
     fRecords <- arbitraryRecordsMatching fMetadata
 
     return $ YxdbFile {
-      header     = fHeader,
-      records    = fRecords,
-      metadata   = fMetadata,
-      blockIndex = fBlockIndex
+      _header     = fHeader,
+      _records    = fRecords,
+      _metadata   = fMetadata,
+      _blockIndex = fBlockIndex
     }
 
-arbitraryBlocksMatching :: Metadata -> Gen Blocks
+arbitraryBlocksMatching :: RecordInfo -> Gen Blocks
 arbitraryBlocksMatching metadata =
     sized $ \blockSize -> do
       when (blockSize < 4) $ fail $ "Invalid block size" ++ show blockSize
@@ -78,7 +55,7 @@ arbitraryBlocksMatching metadata =
 
       return $ Blocks $ BSL.pack blocksBS
 
-arbitraryHeaderMatching :: Metadata -> Blocks -> Gen Header
+arbitraryHeaderMatching :: RecordInfo -> Blocks -> Gen Header
 arbitraryHeaderMatching metadata blocks = do
   fDescription <- vector 64 :: Gen [Word8]
   fFileId <- arbitrary
@@ -96,18 +73,18 @@ arbitraryHeaderMatching metadata blocks = do
   fCompressionVersion <- arbitrary
   fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
   return $ Header {
-               description         = BS.pack fDescription,
-               fileId              = fFileId,
-               creationDate        = fCreationDate,
-               flags1              = fFlags1,
-               flags2              = fFlags2,
-               metaInfoLength      = fMetaInfoLength,
-               mystery             = fMystery,
-               spatialIndexPos     = fSpatialIndexPos,
-               recordBlockIndexPos = fRecordBlockIndexPos,
-               numRecords          = fNumRecords,
-               compressionVersion  = fCompressionVersion,
-               reservedSpace       = BS.pack fReservedSpace
+               _description         = BS.pack fDescription,
+               _fileId              = fFileId,
+               _creationDate        = fCreationDate,
+               _flags1              = fFlags1,
+               _flags2              = fFlags2,
+               _metaInfoLength      = fMetaInfoLength,
+               _mystery             = fMystery,
+               _spatialIndexPos     = fSpatialIndexPos,
+               _recordBlockIndexPos = fRecordBlockIndexPos,
+               _numRecords          = fNumRecords,
+               _compressionVersion  = fCompressionVersion,
+               _reservedSpace       = BS.pack fReservedSpace
              }
 
 instance Arbitrary Header where
@@ -116,21 +93,24 @@ instance Arbitrary Header where
       blocks <- arbitraryBlocksMatching metadata
       arbitraryHeaderMatching metadata blocks
 
-arbitraryRecordsMatching :: Metadata -> Gen [Record]
+arbitraryRecordsMatching :: RecordInfo -> Gen [Record]
 arbitraryRecordsMatching metadata = do
   size <- choose(0,10000)
   vectorOf size (arbitraryRecordMatching metadata)
 
-arbitraryRecordMatching :: Metadata -> Gen Record
-arbitraryRecordMatching (Metadata (RecordInfo fields)) =
+arbitraryRecordMatching :: RecordInfo -> Gen Record
+arbitraryRecordMatching (RecordInfo fields) =
     Record <$> mapM arbitraryValueMatching fields
 
-arbitraryValueMatching :: Field -> Gen FieldValue
-arbitraryValueMatching field = do
-  case fieldType field of
-    FTDouble -> do
-               val <- arbitrary
-               return $ FVDouble val
+arbitraryValueMatching :: Field -> Gen (Maybe FieldValue)
+arbitraryValueMatching field =
+  let value =
+        case field ^. fieldType of
+          FTDouble -> FVDouble <$> arbitrary
+  in oneof [
+    return Nothing,
+    Just <$> value
+    ]
 
 instance Arbitrary Blocks where
     arbitrary = do
@@ -166,10 +146,10 @@ instance Arbitrary Field where
       fSize <- arbitrary
       fScale <- arbitrary
       return $ Field {
-                   fieldName = fName,
-                   fieldType = fType,
-                   fieldSize = fSize,
-                   fieldScale = fScale
+                   _fieldName = fName,
+                   _fieldType = fType,
+                   _fieldSize = fSize,
+                   _fieldScale = fScale
                  }
 
 instance Arbitrary Record where
@@ -180,9 +160,6 @@ instance Arbitrary RecordInfo where
       len <- choose(1,10)
       RecordInfo <$> vector len
 
-instance Arbitrary Metadata where
-    arbitrary = Metadata <$> arbitrary
-
 instance Arbitrary BlockIndex where
     arbitrary =
         sized $
@@ -190,7 +167,7 @@ instance Arbitrary BlockIndex where
                 indices <- replicateM chunkSize arbitrary
                 return $ BlockIndex $ listArray (0, chunkSize) indices
 
-data PairedValue = PairedValue Field FieldValue deriving (Eq, Show)
+data PairedValue = PairedValue Field (Maybe FieldValue) deriving (Eq, Show)
 
 instance Arbitrary PairedValue where
     arbitrary = do
@@ -219,7 +196,7 @@ prop_HeaderLength header =
 
 prop_MetadataLength :: YxdbFile -> Property
 prop_MetadataLength yxdb =
-    assertEq (numMetadataBytesHeader $ header yxdb) (numMetadataBytesActual $ metadata yxdb)
+    assertEq (numMetadataBytesHeader $ yxdb ^. header) (numMetadataBytesActual $ yxdb ^. metadata)
 
 -- prop_BlocksLength :: YxdbFile -> Property
 -- prop_BlocksLength yxdb =
@@ -227,12 +204,12 @@ prop_MetadataLength yxdb =
 
 prop_ValueGetAndPutAreInverses :: PairedValue -> Property
 prop_ValueGetAndPutAreInverses (PairedValue field value) =
-    assertEq (runGet (getValue field) (runPut $ putValue value)) value
+    assertEq (runGet (getValue field) (runPut $ putValue field value)) value
 
 prop_BlockIndexGetAndPutAreInverses :: BlockIndex -> Property
 prop_BlockIndexGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
-prop_MetadataGetAndPutAreInverses :: Metadata -> Property
+prop_MetadataGetAndPutAreInverses :: RecordInfo -> Property
 prop_MetadataGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
 prop_HeaderGetAndPutAreInverses :: Header -> Property
