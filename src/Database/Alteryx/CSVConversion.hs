@@ -55,8 +55,10 @@ record2csvBuilder = do
       record2csvBuilder
     Nothing -> return ()
 
-renderFieldValue :: FieldValue -> TB.Builder
+renderFieldValue :: Maybe FieldValue -> TB.Builder
 renderFieldValue fieldValue =
   -- TODO: Floating point values need to get their size information from the metadata
   case fieldValue of
-    FVDouble f -> TB.formatRealFloat TB.Fixed (Just 4) f
+    Just (FVDouble f) -> TB.formatRealFloat TB.Fixed (Just 4) f
+    Just (FVString x) -> TB.fromText x
+    Nothing           -> TB.fromText ""

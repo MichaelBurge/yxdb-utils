@@ -17,7 +17,7 @@ data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex deriving (Eq, Show)
 
 data YxdbFile = YxdbFile {
       _header     :: Header,
-      _metadata   :: Metadata,
+      _metadata   :: RecordInfo,
       _records    :: [Record],
       _blockIndex :: BlockIndex
 } deriving (Eq, Show)
@@ -37,10 +37,8 @@ data Header = Header {
       _reservedSpace       :: BS.ByteString
 } deriving (Eq, Show)
 
-newtype Record = Record [ FieldValue ] deriving (Eq, Show)
--- TODO: RecordInfo and Metadata are redundant
+newtype Record = Record [ Maybe FieldValue ] deriving (Eq, Show)
 newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
-newtype Metadata = Metadata RecordInfo deriving (Eq, Show)
 newtype Blocks = Blocks BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 
@@ -91,11 +89,7 @@ data Field = Field {
       _fieldScale :: Maybe Int
 } deriving (Eq, Show)
 
-instance NT.Newtype Metadata RecordInfo where
-    pack = Metadata
-    unpack (Metadata x) = x
-
-instance NT.Newtype Record [FieldValue] where
+instance NT.Newtype Record [Maybe FieldValue] where
     pack = Record
     unpack (Record xs) = xs
 
@@ -103,6 +97,9 @@ instance NT.Newtype Blocks BSL.ByteString where
     pack = Blocks
     unpack (Blocks x) = x
 
+instance NT.Newtype RecordInfo [Field] where
+    pack = RecordInfo
+    unpack (RecordInfo x) = x
 
 makeLenses ''Field
 makeLenses ''YxdbFile

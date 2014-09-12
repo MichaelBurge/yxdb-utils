@@ -69,8 +69,8 @@ numBytes x = fromIntegral $ BSL.length $ runPut $ put x
 numMetadataBytesHeader :: Header -> Int
 numMetadataBytesHeader header = fromIntegral $ 2 * (header ^. metaInfoLength)
 
-numMetadataBytesActual :: Metadata -> Int
-numMetadataBytesActual metadata = numBytes metadata
+numMetadataBytesActual :: RecordInfo -> Int
+numMetadataBytesActual recordInfo = numBytes recordInfo
 
 numBlocksBytesHeader :: Header -> Int
 numBlocksBytesHeader header =
@@ -99,7 +99,7 @@ instance Binary YxdbFile where
     put yxdbFile = do
       put $ yxdbFile ^. header
       put $ yxdbFile ^. metadata
-      mapM_ putRecord $ yxdbFile ^. records
+      mapM_ (putRecord $ yxdbFile ^. metadata) $ yxdbFile ^. records
       put $ yxdbFile ^. blockIndex
 
     get = do
@@ -111,8 +111,7 @@ instance Binary YxdbFile where
       fBlocks    <- label ("Blocks of size " ++ show numBlocksBytes) $
                     isolate numBlocksBytes get :: Get Blocks
       fBlockIndex <- label "Block Index" get
-      let recordInfo = NT.unpack fMetadata
-      let fRecords = runGet (label "Records" $ parseRecordsUntil recordInfo) $ NT.unpack fBlocks
+      let fRecords = runGet (label "Records" $ parseRecordsUntil fMetadata) $ NT.unpack fBlocks
 
       return $ YxdbFile {
         _header     = fHeader,
@@ -121,7 +120,7 @@ instance Binary YxdbFile where
         _blockIndex = fBlockIndex
       }
 
-instance Binary Metadata where
+instance Binary RecordInfo where
     put metadata =
       let fieldMap :: Field -> Map.Map Name Text
           fieldMap field =
@@ -145,11 +144,11 @@ instance Binary Metadata where
           transformField field =
               NodeElement $
               Element "Field" (fieldMap field) [ ]
-          transformRecordInfo (RecordInfo fields ) =
+          transformRecordInfo recordInfo =
               NodeElement $
               Element "RecordInfo" Map.empty $
-              Prelude.map transformField fields
-          transformMetaInfo (Metadata recordInfo) =
+              Prelude.map transformField recordInfo
+          transformMetaInfo (RecordInfo recordInfo) =
               Element "MetaInfo" Map.empty [ transformRecordInfo recordInfo]
           transformToDocument node = Document (Prologue [] Nothing []) node []
 
@@ -173,7 +172,7 @@ instance Binary Metadata where
       let recordInfos = parseXmlRecordInfo cursor
       case recordInfos of
         [] -> fail "No RecordInfo entries found"
-        x:[] -> return $ Metadata $ x
+        x:[] -> return x
         otherwise -> fail "Too many RecordInfo entries found"
 
 parseXmlField :: Cursor -> [Field]
@@ -211,8 +210,8 @@ instance Binary Blocks where
       return $ Blocks $ BSL.fromChunks chunks
     put (Blocks blocks) = putBlocks $ BSL.toChunks blocks
 
-putRecord :: Record -> Put
-putRecord (Record fieldValues) = mapM_ putValue fieldValues
+putRecord :: RecordInfo -> Record -> Put
+putRecord (RecordInfo fields) (Record fieldValues) = zipWithM_ putValue fields fieldValues
 
 getRecord :: RecordInfo -> Get Record
 getRecord (RecordInfo fields) = Record <$> mapM getValue fields
