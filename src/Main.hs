@@ -63,4 +63,4 @@ runYxdb2Csv settings =
     csv2bytes $$
     sinkHandle stdout
 
-main = runYxdb2Csv <$> getSettings
+main = getSettings >>= runYxdb2Csv

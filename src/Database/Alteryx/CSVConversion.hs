@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Database.Alteryx.CSVConversion
     (
      bytes2yxdb,
@@ -36,20 +38,20 @@ yxdb2csv = do
     Just yxdbFile ->
       let recordSource = yieldMany $ yxdbFile ^. records
       in do
-        builder <- recordSource $= record2csvBuilder $$ fold
-        yield $ TL.toStrict $ TB.toLazyText $ builder
+        line <- recordSource $= record2csvBuilder $$ fold
+        yield line
         yxdb2csv
     Nothing -> return ()
 
-record2csvBuilder :: Monad m => Conduit Record m TB.Builder
+record2csvBuilder :: Monad m => Conduit Record m T.Text
 record2csvBuilder = do
   mRecord <- await
   case mRecord of
     Just record -> do
-      let bLine = mconcat $
-                     Prelude.map renderFieldValue $
-                     NT.unpack record
-      yield bLine
+      let line = T.intercalate "|" $
+                 Prelude.map (TL.toStrict . TB.toLazyText . renderFieldValue) $
+                 NT.unpack record
+      yield $ line `mappend` "\n"
       record2csvBuilder
     Nothing -> return ()
 
