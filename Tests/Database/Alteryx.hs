@@ -19,7 +19,6 @@ import Test.Framework.Providers.HUnit (testCase)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.HUnit
 import Test.QuickCheck
-import Test.QuickCheck.Instances()
 
 exampleFilename :: String
 exampleFilename = "small-module.yxdb"

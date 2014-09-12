@@ -1,16 +1,20 @@
 {-# LANGUAGE OverloadedStrings,MultiParamTypeClasses #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Database.Alteryx.Serialization
     (
-     putValue,
-     getValue,
+     getBlock,
      getRecord,
+     getValue,
+     putBlock,
      putRecord,
+     putValue,
      headerPageSize,
      numMetadataBytesActual,
      numMetadataBytesHeader,
      numBlocksBytesActual,
      numBlocksBytesHeader,
+     parseRecordsUntil,
      startOfBlocksByteIndex
     ) where
 
@@ -21,10 +25,8 @@ import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByte
 import qualified Control.Newtype as NT
 import Control.Applicative
 import Control.Lens
-import Control.Monad as M (liftM, msum, replicateM, when, zipWithM_)
-import Control.Monad.Trans.Resource (runResourceT)
+import Control.Monad as M
 import Data.Array.IArray (listArray, bounds, elems)
-import Data.Array.Unboxed (UArray)
 import Data.Binary
 import Data.Binary.C ()
 import Data.Binary.Get
@@ -32,31 +34,24 @@ import Data.Binary.Put
 import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import Data.ByteString.Lazy.Char8 as BSC
-import Data.Conduit (($$), ($=), Sink(..), yield)
-import Data.Int
 import qualified Data.Map as Map
 import Data.Maybe (isJust, listToMaybe)
 import Data.Text as T
 import Data.Text.Encoding (decodeUtf16LE, encodeUtf16LE)
 import qualified Data.Text.Lazy as TL
-import Foreign.C.Types
-import System.IO.Unsafe (unsafePerformIO)
 import Text.XML
 import Text.XML.Cursor as XMLC
     (
-     Cursor(..),
+     Cursor,
      ($//),
-     (&/),
      attribute,
      element,
      fromDocument
     )
-import Text.XML.Stream.Parse
-import Foreign.Storable (sizeOf)
 
 recordsPerBlock = 0x10000
 spatialIndexRecordBlockSize = 32
+headerPageSize :: Int
 headerPageSize = 512
 bufferSize = 0x40000
 
@@ -90,10 +85,7 @@ parseRecordsUntil recordInfo = do
   done <- isEmpty
   if done
     then return $ []
-    else do
-      record <- getRecord recordInfo
-      records <- parseRecordsUntil recordInfo
-      return $ (:) record records
+    else (:) <$> getRecord recordInfo <*> parseRecordsUntil recordInfo
 
 instance Binary YxdbFile where
     put yxdbFile = do
@@ -171,9 +163,9 @@ instance Binary RecordInfo where
       let cursor = fromDocument document
       let recordInfos = parseXmlRecordInfo cursor
       case recordInfos of
-        [] -> fail "No RecordInfo entries found"
+        []   -> fail "No RecordInfo entries found"
         x:[] -> return x
-        otherwise -> fail "Too many RecordInfo entries found"
+        xs   -> fail "Too many RecordInfo entries found"
 
 parseXmlField :: Cursor -> [Field]
 parseXmlField cursor = do

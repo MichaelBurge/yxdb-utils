@@ -15,11 +15,17 @@ import Data.Word
 
 data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex deriving (Eq, Show)
 
+data YxdbMetadata = YxdbMetadata {
+  _metadataHeader     :: Header,
+  _metadataRecordInfo :: RecordInfo,
+  _metadataBlockIndex :: BlockIndex
+  } deriving (Eq, Show)
+
 data YxdbFile = YxdbFile {
-      _header     :: Header,
-      _metadata   :: RecordInfo,
-      _records    :: [Record],
-      _blockIndex :: BlockIndex
+  _header     :: Header,
+  _metadata   :: RecordInfo,
+  _records    :: [Record],
+  _blockIndex :: BlockIndex
 } deriving (Eq, Show)
 
 data Header = Header {
@@ -101,6 +107,11 @@ instance NT.Newtype RecordInfo [Field] where
     pack = RecordInfo
     unpack (RecordInfo x) = x
 
+instance NT.Newtype BlockIndex (UArray Int Int64) where
+  pack = BlockIndex
+  unpack (BlockIndex x) = x
+
 makeLenses ''Field
 makeLenses ''YxdbFile
 makeLenses ''Header
+makeLenses ''YxdbMetadata

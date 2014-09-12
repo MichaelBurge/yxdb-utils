@@ -12,6 +12,7 @@ import Data.ByteString as BS
 import Data.ByteString.Lazy as BSL
 import Data.Word
 import Test.QuickCheck
+import Test.QuickCheck.Instances()
 
 instance Arbitrary YxdbFile where
   arbitrary = do

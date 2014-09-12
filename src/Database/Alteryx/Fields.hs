@@ -105,7 +105,10 @@ getValue field =
            int <- get :: Get Int16
            _ <- getWord8
            return $ Just $ FVInt16 int
-         FTInt32         -> error "getInt32 unimplemented"
+         FTInt32         -> do
+           int <- get :: Get Int32
+           _ <- getWord8
+           return $ Just $ FVInt32 int
          FTInt64         -> error "getInt64 unimplemented"
          FTFixedDecimal  -> error "getFixedDecimal unimplemented"
          FTFloat         -> error "getFloat unimplemented"
