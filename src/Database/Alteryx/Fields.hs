@@ -83,11 +83,14 @@ putValue field value = do
 
 getValue :: Field -> Get (Maybe FieldValue)
 getValue field =
-    let getCString :: Get (Maybe Text)
-        getCString = do
-          bs <- getLazyByteStringNul
-          _ <- getWord8
-          return $ Just $ decodeUtf16LE $ BSL.toStrict bs
+    let getFixedString :: Int -> (BS.ByteString -> Text) -> Get (Maybe Text)
+        getFixedString charBytes decoder =
+          let mNumBytes = (charBytes*) <$> (1+) <$> field ^. fieldSize
+          in case mNumBytes of
+            Just numBytes -> do
+              bs <- getByteString numBytes
+              return $ Just $ decoder bs
+            Nothing -> error "getValue: String field had no size"
         getVarString :: Get (Maybe Text)
         getVarString = do
           initialLength <- getWord32le
@@ -102,11 +105,11 @@ getValue field =
          FTBool          -> error "getBool unimplemented"
          FTByte          -> error "getByte unimplemented"
          FTInt16         -> do
-           int <- get :: Get Int16
+           int <- fromIntegral <$> getWord16le :: Get Int16
            _ <- getWord8
            return $ Just $ FVInt16 int
          FTInt32         -> do
-           int <- get :: Get Int32
+           int <- fromIntegral <$> getWord32le :: Get Int32
            _ <- getWord8
            return $ Just $ FVInt32 int
          FTInt64         -> error "getInt64 unimplemented"
@@ -116,8 +119,8 @@ getValue field =
            double <- get :: Get CDouble
            _ <- getWord8
            return $ Just $ FVDouble $ realToFrac double
-         FTString        -> (FVString <$>) <$> getCString
-         FTWString       -> (FVWString <$>) <$> getCString
+         FTString        -> (FVString <$>) <$> getFixedString 1 decodeUtf8
+         FTWString       -> (FVWString <$>) <$> getFixedString 2 decodeUtf16LE
          FTVString       -> (FVVString <$>) <$> getVarString
          FTVWString      -> (FVVWString <$>) <$> getVarString
          FTDate          -> error "getDate unimplemented"

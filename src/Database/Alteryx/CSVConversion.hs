@@ -23,6 +23,7 @@ import Data.Monoid
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
+import qualified Data.Text.Lazy.Builder.Int as TB
 import qualified Data.Text.Lazy.Builder.RealFloat as TB
 
 import Database.Alteryx.Serialization
@@ -63,5 +64,9 @@ renderFieldValue fieldValue =
   -- TODO: Floating point values need to get their size information from the metadata
   case fieldValue of
     Just (FVDouble f) -> TB.formatRealFloat TB.Fixed (Just 4) f
+    Just (FVInt16 x)  -> TB.decimal x
+    Just (FVInt32 x)  -> TB.decimal x
+    Just (FVInt64 x)  -> TB.decimal x
     Just (FVString x) -> TB.fromText x
     Nothing           -> TB.fromText ""
+    _                 -> error $ "renderFieldValue: Unlisted case: " ++ show fieldValue

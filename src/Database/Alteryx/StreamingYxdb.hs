@@ -1,6 +1,7 @@
 module Database.Alteryx.StreamingYxdb
        (
          getMetadata,
+         streamOneRecord,
          streamRecords,
          yieldNBlocks,
          yieldAllBlocks
@@ -72,6 +73,16 @@ yieldNBlocks n filepath = yieldBlocks filepath . Prelude.take n . blockRanges
 
 yieldAllBlocks :: (MonadResource m) => FilePath -> YxdbMetadata -> Source m BS.ByteString
 yieldAllBlocks filepath = yieldBlocks filepath . blockRanges
+
+streamOneRecord :: (MonadThrow m) => YxdbMetadata -> Conduit BS.ByteString m Record
+streamOneRecord metadata = do
+  mBS <- await
+  case mBS of
+    Nothing -> return ()
+    Just bs -> yieldRecords bs
+  where
+    recordInfo = metadata ^. metadataRecordInfo
+    yieldRecords bs = yield $ runGet (getRecord recordInfo) $ BSL.fromStrict bs  
 
 streamRecords :: (MonadThrow m) => YxdbMetadata -> Conduit BS.ByteString m Record
 streamRecords metadata = do

@@ -12,6 +12,7 @@ import Data.Array.Unboxed as A
 import qualified Data.ByteString as BS
 import Data.Conduit
 import Data.Conduit.Binary
+import qualified Data.Conduit.Combinators as CC
 import Data.Int
 import Data.Monoid
 import Data.Text as T hiding (concat, foldl)
@@ -94,6 +95,13 @@ printRecordInfo metadata =
         putStrLn $ "  " <>
                    (field ^. fieldName) <> ": " <>
                    (T.pack $ show $ field ^. fieldType)
+                   <> case field ^. fieldSize of
+                        Just x -> " - Size: " <> (T.pack $ show x)
+                        Nothing -> ""
+                   <> case field ^. fieldScale of                     
+                        Just x -> " - Scale: " <> (T.pack $ show x)
+                        Nothing -> ""
+                                   
   in liftIO $ do
      putStrLn "RecordInfo:"
      Prelude.mapM_ printField $ NT.unpack $ metadata ^. metadataRecordInfo
@@ -115,7 +123,7 @@ runYxdb2Csv = do
   metadata <- liftIO $ getMetadata filename
   runResourceT $
     yieldNBlocks 1 filename metadata $=
-    streamRecords metadata =$=
+    streamOneRecord metadata =$=
     record2csv =$=
     csv2bytes $$
     sinkHandle stdout
