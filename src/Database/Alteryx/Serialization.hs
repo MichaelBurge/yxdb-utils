@@ -271,7 +271,7 @@ putBlock bs = do
 
 instance Binary Header where
     put header = do
-      let actualDescriptionBS  = encodeUtf8 $ header ^. description
+      let actualDescriptionBS  = BS.take 64 $ encodeUtf8 $ header ^. description
       let numPaddingBytes      = fromIntegral $ 64 - BS.length actualDescriptionBS
       let paddingDescriptionBS = BSL.toStrict $ BSL.take numPaddingBytes $ BSL.repeat 0
       
