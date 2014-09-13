@@ -1,8 +1,8 @@
 module Database.Alteryx.StreamingYxdb
        (
          getMetadata,
-         streamOneRecord,
-         streamRecords,
+         streamNRecords,
+         streamAllRecords,
          yieldNBlocks,
          yieldAllBlocks
        )where
@@ -20,9 +20,13 @@ import Data.ByteString.Lazy as BSL
 import Data.Conduit
 import Data.Conduit.Binary
 import Data.Conduit.Combinators as CC
+import Data.Conduit.Serialization.Binary
+import Data.Maybe
 
 import Database.Alteryx.Serialization
 import Database.Alteryx.Types
+
+import Debug.Trace
 
 readRange :: (MonadResource m) => FilePath -> Maybe Int -> Maybe Int -> m BS.ByteString
 readRange filepath from to = sourceFileRange filepath (fromIntegral <$> from) (fromIntegral <$> to) $$ fold
@@ -82,14 +86,16 @@ streamOneRecord metadata = do
     Just bs -> yieldRecords bs
   where
     recordInfo = metadata ^. metadataRecordInfo
-    yieldRecords bs = yield $ runGet (getRecord recordInfo) $ BSL.fromStrict bs  
+    yieldRecords bs = yield $
+                      runGet (getRecord recordInfo) $
+                      BSL.fromStrict bs 
 
-streamRecords :: (MonadThrow m) => YxdbMetadata -> Conduit BS.ByteString m Record
-streamRecords metadata = do
-  mBS <- await
-  case mBS of
-    Nothing -> return ()
-    Just bs -> yieldRecords bs
+streamNRecords :: (MonadThrow m) => Int -> YxdbMetadata -> Conduit BS.ByteString m Record
+streamNRecords n metadata = conduitGet (getRecord recordInfo) =$= CC.take n
   where
     recordInfo = metadata ^. metadataRecordInfo
-    yieldRecords bs = yieldMany $ runGet (parseRecordsUntil recordInfo) $ BSL.fromStrict bs
+
+streamAllRecords :: (MonadThrow m) => YxdbMetadata -> Conduit BS.ByteString m Record
+streamAllRecords metadata = conduitGet (getRecord recordInfo)
+  where
+    recordInfo = metadata ^. metadataRecordInfo

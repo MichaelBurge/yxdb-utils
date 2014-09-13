@@ -119,7 +119,7 @@ getValue field =
            double <- get :: Get CDouble
            _ <- getWord8
            return $ Just $ FVDouble $ realToFrac double
-         FTString        -> (FVString <$>) <$> getFixedString 1 decodeUtf8
+         FTString        -> (FVString <$>) <$> getFixedString 1 decodeLatin1
          FTWString       -> (FVWString <$>) <$> getFixedString 2 decodeUtf16LE
          FTVString       -> (FVVString <$>) <$> getVarString
          FTVWString      -> (FVVWString <$>) <$> getVarString
