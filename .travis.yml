@@ -1,6 +1,4 @@
 language: haskell
 ghc:
   - 7.8
-
-script:
-  cabal configure --enable-tests && cabal install encoding . -j2 && cabal test
+  - 7.6
