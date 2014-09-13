@@ -3,7 +3,7 @@
 import Database.Alteryx
 
 import Control.Applicative
-import Control.Lens
+import Control.Lens hiding (set, setting)
 import Control.Monad
 import Control.Monad.State
 import Control.Monad.Trans.Resource
@@ -23,22 +23,27 @@ import System.Environment
 import System.IO hiding (putStrLn)
 
 data Settings = Settings {
-  _settingMetadata :: Bool,
-  _settingVerbose  :: Bool,
-  _settingFilename :: String
+  _settingMetadata  :: Bool,
+  _settingNumBlocks :: Maybe Int,
+  _settingVerbose   :: Bool,
+  _settingFilename  :: String
   }
 
 makeLenses ''Settings
 
 options :: [OptDescr (Settings -> Settings)]
 options =
-  [
+  let set setting = \o -> (& setting .~ Just (read o))
+  in [
+    Option ['b'] ["num-blocks"] (ReqArg (set settingNumBlocks) "Number of blocks") "Only output the given number of blocks",
     Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump the file's metadata",
     Option ['v'] ["verbose"] (NoArg (& settingVerbose .~ True)) "Print extra debugging information on stderr"
   ]
 
+defaultSettings :: Settings
 defaultSettings = Settings {
   _settingMetadata = False,
+  _settingNumBlocks = Nothing,
   _settingVerbose  = False,
   _settingFilename = error "defaultSettings: Filename empty"
   }
@@ -121,9 +126,14 @@ runYxdb2Csv = do
   settings <- get
   let filename = settings ^. settingFilename
   metadata <- liftIO $ getMetadata filename
+  let blockStreamer =
+        case settings ^. settingNumBlocks of
+          Just n  -> yieldNBlocks n filename metadata
+          Nothing -> yieldAllBlocks filename metadata
+
   runResourceT $
-    yieldNBlocks 1 filename metadata $=
-    streamOneRecord metadata =$=
+    blockStreamer  $=
+    streamRecords metadata =$=
     record2csv =$=
     csv2bytes $$
     sinkHandle stdout
