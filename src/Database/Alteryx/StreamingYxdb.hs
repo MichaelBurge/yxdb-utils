@@ -1,4 +1,10 @@
-module Database.Alteryx.StreamingYxdb where
+module Database.Alteryx.StreamingYxdb
+       (
+         getMetadata,
+         streamRecords,
+         yieldNBlocks,
+         yieldAllBlocks
+       )where
 
 import Control.Applicative
 import Control.Lens hiding (from, to)
@@ -37,18 +43,35 @@ getMetadata filepath = runResourceT $ do
     _metadataBlockIndex = blockIndex
     }
 
-streamBlocks :: (MonadResource m) => FilePath -> YxdbMetadata -> Source m BS.ByteString
-streamBlocks filepath metadata =
-  let blockIndices = Prelude.map fromIntegral $
-                     A.elems $
-                     NT.unpack $
-                     metadata ^. metadataBlockIndex
-      ranges = Prelude.zip (Prelude.map Just blockIndices) (Prelude.map Just blockIndices ++ [Nothing])
-  in forM_ ranges $ \(from, to) -> do
-    rawBlock <- readRange filepath from to
-    let block = runGet getBlock $ BSL.fromStrict rawBlock
-    yield block
-    return ()
+type BlockRange = (Int, Int)
+type BlockRanges = [BlockRange]
+
+blockRanges :: YxdbMetadata -> BlockRanges
+blockRanges metadata =
+  let blockIndices =
+        Prelude.map fromIntegral $
+        A.elems $
+        NT.unpack $
+        metadata ^. metadataBlockIndex
+      blockEnd = fromIntegral $ metadata ^. metadataHeader ^. recordBlockIndexPos
+      ranges = Prelude.zip blockIndices (Prelude.tail $ blockIndices ++ return blockEnd)
+  in ranges
+
+yieldBlock :: (MonadResource m) => FilePath -> BlockRange -> Source m BS.ByteString
+yieldBlock  filepath (from, to) = do
+  let numBytes = fromIntegral $ to - from
+  rawBlock <- readRange filepath (Just from) (Just numBytes)
+  let block = runGet (label ("streamBlocks" ++ show (from, numBytes)) $ getBlock) $ BSL.fromStrict rawBlock
+  yield block
+
+yieldBlocks :: (MonadResource m) => FilePath -> BlockRanges -> Source m BS.ByteString
+yieldBlocks filepath ranges = forM_ ranges $ yieldBlock filepath
+
+yieldNBlocks :: (MonadResource m) => Int -> FilePath -> YxdbMetadata -> Source m BS.ByteString
+yieldNBlocks n filepath = yieldBlocks filepath . Prelude.take n . blockRanges
+
+yieldAllBlocks :: (MonadResource m) => FilePath -> YxdbMetadata -> Source m BS.ByteString
+yieldAllBlocks filepath = yieldBlocks filepath . blockRanges
 
 streamRecords :: (MonadThrow m) => YxdbMetadata -> Conduit BS.ByteString m Record
 streamRecords metadata = do

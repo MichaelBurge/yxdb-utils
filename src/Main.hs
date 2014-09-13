@@ -114,7 +114,7 @@ runYxdb2Csv = do
   let filename = settings ^. settingFilename
   metadata <- liftIO $ getMetadata filename
   runResourceT $
-    streamBlocks filename metadata $=
+    yieldNBlocks 1 filename metadata $=
     streamRecords metadata =$=
     record2csv =$=
     csv2bytes $$
