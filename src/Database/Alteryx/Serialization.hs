@@ -3,19 +3,18 @@
 
 module Database.Alteryx.Serialization
     (
-     getBlocks,
-     getRecord,
-     getValue,
-     putBlock,
-     putRecord,
-     putValue,
-     headerPageSize,
-     numMetadataBytesActual,
-     numMetadataBytesHeader,
-     numBlocksBytesActual,
-     numBlocksBytesHeader,
-     parseRecordsUntil,
-     startOfBlocksByteIndex
+      dbFileId,
+      getRecord,
+      getValue,
+      putRecord,
+      putValue,
+      headerPageSize,
+      numMetadataBytesActual,
+      numMetadataBytesHeader,
+      numBlockBytesActual,
+      numBlockBytesHeader,
+      parseRecordsUntil,
+      startOfBlocksByteIndex
     ) where
 
 import Database.Alteryx.Fields
@@ -54,8 +53,11 @@ recordsPerBlock = 0x10000
 spatialIndexRecordBlockSize = 32
 headerPageSize :: Int
 headerPageSize = 512
+
+bufferSize :: Int
 bufferSize = 0x40000
 
+dbFileId :: DbType -> Int
 dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
@@ -68,14 +70,14 @@ numMetadataBytesHeader header = fromIntegral $ 2 * (header ^. metaInfoLength)
 numMetadataBytesActual :: RecordInfo -> Int
 numMetadataBytesActual recordInfo = numBytes recordInfo
 
-numBlocksBytesHeader :: Header -> Int
-numBlocksBytesHeader header =
+numBlockBytesHeader :: Header -> Int
+numBlockBytesHeader header =
     let start = headerPageSize + (numMetadataBytesHeader header)
         end =  (fromIntegral $ header ^. recordBlockIndexPos)
     in end - start
 
-numBlocksBytesActual :: Blocks -> Int
-numBlocksBytesActual blocks = numBytes blocks
+numBlockBytesActual :: Block -> Int
+numBlockBytesActual block = numBytes block
 
 startOfBlocksByteIndex :: Header -> Int
 startOfBlocksByteIndex header =
@@ -88,29 +90,31 @@ parseRecordsUntil recordInfo = do
     then return $ []
     else (:) <$> getRecord recordInfo <*> parseRecordsUntil recordInfo
 
+
+-- | This binary instance is really slow because the YxdbFile type stores a list of records. Use the Conduit functions instead.
 instance Binary YxdbFile where
     put yxdbFile = do
-      put $ yxdbFile ^. header
-      put $ yxdbFile ^. metadata
-      mapM_ (putRecord $ yxdbFile ^. metadata) $ yxdbFile ^. records
-      put $ yxdbFile ^. blockIndex
+      put $ yxdbFile ^. yxdbFileHeader
+      put $ yxdbFile ^. yxdbFileMetadata
+      mapM_ (putRecord $ yxdbFile ^. yxdbFileMetadata) $ yxdbFile ^. yxdbFileRecords
+      put $ yxdbFile ^. yxdbFileBlockIndex
 
     get = do
       fHeader     <- label "Header" $ isolate (fromIntegral headerPageSize) get
       fMetadata   <- label "Metadata" $ isolate (numMetadataBytesHeader fHeader) $ get
 
-      let numBlocksBytes = numBlocksBytesHeader $ fHeader
+      let numBlockBytes = numBlockBytesHeader $ fHeader
 
-      fBlocks    <- label ("Blocks of size " ++ show numBlocksBytes) $
-                    isolate numBlocksBytes get :: Get Blocks
+      fBlocks    <- label ("Blocks of size " ++ show numBlockBytes) $
+                    isolate numBlockBytes get :: Get Block
       fBlockIndex <- label "Block Index" get
       let fRecords = runGet (label "Records" $ parseRecordsUntil fMetadata) $ NT.unpack fBlocks
 
       return $ YxdbFile {
-        _header     = fHeader,
-        _metadata   = fMetadata,
-        _records    = fRecords,
-        _blockIndex = fBlockIndex
+        _yxdbFileHeader     = fHeader,
+        _yxdbFileMetadata   = fMetadata,
+        _yxdbFileRecords    = fRecords,
+        _yxdbFileBlockIndex = fBlockIndex
       }
 
 instance Binary RecordInfo where
@@ -197,12 +201,6 @@ parseXmlRecordInfo cursor = do
 parseInt :: Text -> Int
 parseInt text = read $ T.unpack text :: Int
 
-instance Binary Blocks where
-    get = do
-      chunks <- getBlocks
-      return $ Blocks $ BSL.fromChunks chunks
-    put (Blocks blocks) = putBlocks $ BSL.toChunks blocks
-
 putRecord :: RecordInfo -> Record -> Put
 putRecord (RecordInfo fields) (Record fieldValues) = zipWithM_ putValue fields fieldValues
 
@@ -224,52 +222,48 @@ instance Binary BlockIndex where
       putWord32le $ fromIntegral $ iMax + 1
       mapM_ (putWord64le . fromIntegral) $ elems blockIndex
 
--- TODO: This should probably be named 'getBlock'. The existing 'getBlock' is more like 'getMiniBlock', where a 'miniblock' are a collection of records that can be compressed or not together but is not listed in the block index. A block consists of many miniblocks - the final miniblock is usually much smaller than the others, since it's truncated to fit a record thrteshold.
-getBlocks :: Get [BS.ByteString]
-getBlocks = do
-  done <- isEmpty
-  if (done)
-     then return $ []
-     else do
-       block <- getBlock
-       remainingBlocks <- getBlocks
-       return $ block:remainingBlocks
+instance Binary Block where
+  get = do
+    done <- isEmpty
+    if done
+      then return $ Block BSL.empty
+      else do
+        headBlock <- get :: Get Miniblock
+        tailBlock <- get :: Get Block
+        let x = NT.unpack headBlock
+        let xs = BSL.toChunks $ NT.unpack tailBlock
+        return $ Block $ BSL.fromChunks $ x:xs
+  put (Block bs) =
+    case BSL.toChunks bs of
+      [] -> put $ Miniblock $ BS.empty
+      xs -> mapM_ (put . Miniblock) xs
 
-putBlocks :: [BS.ByteString] -> Put
-putBlocks []  = putBlock BS.empty
-putBlocks [x] = putBlock x
-putBlocks (x:xs) = do
-  putBlock x
-  putBlocks xs
+instance Binary Miniblock where
+  get = do
+    writtenSize <- label "Block size" getWord32le
+    let compressionBitIndex = 31
+    let isCompressed = not $ testBit writtenSize compressionBitIndex
+    let size = fromIntegral $ clearBit writtenSize compressionBitIndex
 
-getBlock :: Get BS.ByteString
-getBlock = do
-  writtenSize <- label "Block size" getWord32le
-  let compressionBitIndex = 31
-  let isCompressed = not $ testBit writtenSize compressionBitIndex
-  let size = fromIntegral $ clearBit writtenSize compressionBitIndex
-
-  bs <- label ("Block of size " ++ show size) $ isolate size $ getByteString $ size
-  let chunk = if isCompressed
-              then case decompressByteStringFixed bufferSize bs of
-                     Nothing -> fail "Unable to decompress. Increase buffer size?"
-                     Just x -> return $ x
-              else return bs
-  chunk
-
-putBlock :: BS.ByteString -> Put
-putBlock bs = do
-  let compressionBitIndex = 31
-  let compressedBlock = compressByteStringFixed ((BS.length bs)-1) bs
-  let blockToWrite = case compressedBlock of
-                       Nothing -> bs
-                       Just x  -> x
-  let size = BS.length blockToWrite
-  let writtenSize = if isJust compressedBlock
-                    then size
-                    else setBit size compressionBitIndex
-  putWord32le $ fromIntegral writtenSize
-  putByteString blockToWrite
+    bs <- label ("Block of size " ++ show size) $ isolate size $ getByteString $ size
+    let chunk = if isCompressed
+                then case decompressByteStringFixed bufferSize bs of
+                  Nothing -> fail "Unable to decompress. Increase buffer size?"
+                  Just x -> return $ x
+                else return bs
+    Miniblock <$> chunk
+  put (Miniblock bs) = do
+    let compressionBitIndex = 31
+    let compressedBlock = compressByteStringFixed ((BS.length bs)-1) bs
+    let blockToWrite = case compressedBlock of
+          Nothing -> bs
+          Just x  -> x
+    let size = BS.length blockToWrite
+    let writtenSize = if isJust compressedBlock
+                      then size
+                      else setBit size compressionBitIndex
+    putWord32le $ fromIntegral writtenSize
+    putByteString blockToWrite
 
 instance Binary Header where
     put header = do

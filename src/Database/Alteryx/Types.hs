@@ -22,10 +22,10 @@ data YxdbMetadata = YxdbMetadata {
   } deriving (Eq, Show)
 
 data YxdbFile = YxdbFile {
-  _header     :: Header,
-  _metadata   :: RecordInfo,
-  _records    :: [Record],
-  _blockIndex :: BlockIndex
+  _yxdbFileHeader     :: Header,
+  _yxdbFileMetadata   :: RecordInfo,
+  _yxdbFileRecords    :: [Record],
+  _yxdbFileBlockIndex :: BlockIndex
 } deriving (Eq, Show)
 
 data Header = Header {
@@ -45,7 +45,8 @@ data Header = Header {
 
 newtype Record = Record [ Maybe FieldValue ] deriving (Eq, Show)
 newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
-newtype Blocks = Blocks BSL.ByteString deriving (Eq, Show)
+newtype Miniblock = Miniblock BS.ByteString deriving (Eq, Show)
+newtype Block = Block BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 
 data FieldValue = FVBool Bool
@@ -96,16 +97,20 @@ data Field = Field {
 } deriving (Eq, Show)
 
 instance NT.Newtype Record [Maybe FieldValue] where
-    pack = Record
-    unpack (Record xs) = xs
+  pack = Record
+  unpack (Record xs) = xs
 
-instance NT.Newtype Blocks BSL.ByteString where
-    pack = Blocks
-    unpack (Blocks x) = x
+instance NT.Newtype Block BSL.ByteString where
+  pack = Block
+  unpack (Block x) = x
+
+instance NT.Newtype Miniblock BS.ByteString where
+  pack = Miniblock
+  unpack (Miniblock x) = x
 
 instance NT.Newtype RecordInfo [Field] where
-    pack = RecordInfo
-    unpack (RecordInfo x) = x
+  pack = RecordInfo
+  unpack (RecordInfo x) = x
 
 instance NT.Newtype BlockIndex (UArray Int Int64) where
   pack = BlockIndex

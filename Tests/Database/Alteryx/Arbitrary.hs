@@ -21,28 +21,28 @@ instance Arbitrary YxdbFile where
   arbitrary = do
     fMetadata   <- arbitrary
     blockSize   <- choose(4,1000)
-    fBlocks     <- resize blockSize $ arbitraryBlocksMatching fMetadata
+    fBlocks     <- resize blockSize $ arbitraryBlockMatching fMetadata
     fHeader     <- arbitraryHeaderMatching fMetadata fBlocks
     fBlockIndex <- arbitrary
 
     fRecords <- arbitraryRecordsMatching fMetadata
 
     return $ YxdbFile {
-      _header     = fHeader,
-      _records    = fRecords,
-      _metadata   = fMetadata,
-      _blockIndex = fBlockIndex
+      _yxdbFileHeader     = fHeader,
+      _yxdbFileRecords    = fRecords,
+      _yxdbFileMetadata   = fMetadata,
+      _yxdbFileBlockIndex = fBlockIndex
     }
 
-arbitraryBlocksMatching :: RecordInfo -> Gen Blocks
-arbitraryBlocksMatching metadata =
+arbitraryBlockMatching :: RecordInfo -> Gen Block
+arbitraryBlockMatching metadata =
     sized $ \blockSize -> do
       when (blockSize < 4) $ fail $ "Invalid block size" ++ show blockSize
-      blocksBS <- vector $ blockSize - 4 :: Gen [Word8]
-      return $ Blocks $ BSL.pack blocksBS
+      blockBS <- vector $ blockSize - 4 :: Gen [Word8]
+      return $ Block $ BSL.pack blockBS
 
-arbitraryHeaderMatching :: RecordInfo -> Blocks -> Gen Header
-arbitraryHeaderMatching metadata blocks = do
+arbitraryHeaderMatching :: RecordInfo -> Block -> Gen Header
+arbitraryHeaderMatching metadata block = do
   fDescription <- replicateM 64 $ choose(0,127) :: Gen [Word8]
   fFileId <- arbitrary
   fCreationDate <- posixSecondsToUTCTime <$> fromIntegral <$> (arbitrary :: Gen Word32)
@@ -52,9 +52,9 @@ arbitraryHeaderMatching metadata blocks = do
   fSpatialIndexPos <- arbitrary
   let numMetadataBytes = numMetadataBytesActual metadata
   let fMetaInfoLength = fromIntegral $ numMetadataBytes `div` 2
-  let numBlocksBytes = numBlocksBytesActual blocks
+  let numBlockBytes = numBlockBytesActual block
   let startOfBlocks = fromIntegral $ headerPageSize + (fromIntegral $ numMetadataBytes)
-  let fRecordBlockIndexPos = startOfBlocks + (fromIntegral numBlocksBytes)
+  let fRecordBlockIndexPos = startOfBlocks + (fromIntegral numBlockBytes)
   fNumRecords <- arbitrary
   fCompressionVersion <- arbitrary
   fReservedSpace <- vector (512 - 64 - (4 * 7) - (8 * 3)) :: Gen [Word8]
@@ -76,8 +76,8 @@ arbitraryHeaderMatching metadata blocks = do
 instance Arbitrary Header where
     arbitrary = do
       metadata <- arbitrary
-      blocks <- arbitraryBlocksMatching metadata
-      arbitraryHeaderMatching metadata blocks
+      block <- arbitraryBlockMatching metadata
+      arbitraryHeaderMatching metadata block
 
 arbitraryRecordsMatching :: RecordInfo -> Gen [Record]
 arbitraryRecordsMatching metadata = do
@@ -98,8 +98,8 @@ arbitraryValueMatching field =
     Just <$> value
     ]
 
-instance Arbitrary Blocks where
-    arbitrary = arbitraryBlocksMatching =<< arbitrary
+instance Arbitrary Block where
+    arbitrary = arbitraryBlockMatching =<< arbitrary
 
 instance Arbitrary FieldType where
     arbitrary = elements [

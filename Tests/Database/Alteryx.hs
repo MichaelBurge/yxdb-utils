@@ -38,7 +38,8 @@ prop_HeaderLength header =
 
 prop_MetadataLength :: YxdbFile -> Property
 prop_MetadataLength yxdb =
-    assertEq (numMetadataBytesHeader $ yxdb ^. header) (numMetadataBytesActual $ yxdb ^. metadata)
+    assertEq (numMetadataBytesHeader $ yxdb ^. yxdbFileHeader)
+             (numMetadataBytesActual $ yxdb ^. yxdbFileMetadata)
 
 -- prop_BlocksLength :: YxdbFile -> Property
 -- prop_BlocksLength yxdb =
@@ -57,7 +58,7 @@ prop_MetadataGetAndPutAreInverses x = assertEq (decode $ encode x) x
 prop_HeaderGetAndPutAreInverses :: Header -> Property
 prop_HeaderGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
-prop_BlocksGetAndPutAreInverses :: Blocks -> Property
+prop_BlocksGetAndPutAreInverses :: Block -> Property
 prop_BlocksGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
 prop_YxdbFileGetAndPutAreInverses :: YxdbFile -> Property
