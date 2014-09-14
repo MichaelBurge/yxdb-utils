@@ -26,8 +26,6 @@ import Data.Maybe
 import Database.Alteryx.Serialization
 import Database.Alteryx.Types
 
-import Debug.Trace
-
 readRange :: (MonadResource m) => FilePath -> Maybe Int -> Maybe Int -> m BS.ByteString
 readRange filepath from to = sourceFileRange filepath (fromIntegral <$> from) (fromIntegral <$> to) $$ fold
 
