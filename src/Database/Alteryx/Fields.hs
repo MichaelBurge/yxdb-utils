@@ -79,7 +79,12 @@ putValue field value = do
     Just (FVBlob x)          -> error "putBlob unimplemented"
     Just (FVSpatialObject x) -> error "putSpatialObject unimplemented"
     Just (FVUnknown)         -> error "putUnknown unimplemented"
-    Nothing -> error "putValue unimplemented for null values"
+    Nothing ->
+      case field ^. fieldType of
+        FTDouble -> do
+          put (0 :: CDouble)
+          putWord8 1
+        x -> error $ "putValue unimplemented for null values of type" ++ show x
 
 getValue :: Field -> Get (Maybe FieldValue)
 getValue field =
@@ -120,8 +125,10 @@ getValue field =
          FTFloat         -> error "getFloat unimplemented"
          FTDouble        -> do
            double <- get :: Get CDouble
-           _ <- getWord8
-           return $ Just $ FVDouble $ realToFrac double
+           isNull <- getWord8
+           return $ if isNull > 0
+                    then Nothing
+                    else Just $ FVDouble $ realToFrac double
          FTString        -> (FVString <$>) <$> getFixedString 1 decodeLatin1
          FTWString       -> (FVWString <$>) <$> getFixedString 2 decodeUtf16LE
          FTVString       -> (FVVString <$>) <$> getVarString
