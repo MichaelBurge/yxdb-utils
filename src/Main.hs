@@ -17,10 +17,14 @@ import Data.Int
 import Data.Monoid
 import Data.Text as T hiding (concat, foldl)
 import Data.Text.IO
+import Data.Time.Clock
+import Data.Time.Clock.POSIX
+import Data.Time.Format
 import Prelude hiding (putStrLn)
 import System.Console.GetOpt
 import System.Environment
 import System.IO hiding (putStrLn)
+import System.Locale
 
 data Settings = Settings {
   _settingMetadata   :: Bool,

@@ -21,7 +21,6 @@ import Data.Conduit
 import Data.Conduit.Binary
 import Data.Conduit.Combinators as CC
 import Data.Conduit.Serialization.Binary
-import Data.Maybe
 
 import Database.Alteryx.Serialization
 import Database.Alteryx.Types

@@ -31,7 +31,7 @@ data YxdbFile = YxdbFile {
 data Header = Header {
       _description         :: Text,
       _fileId              :: Word32,
-      _creationDate        :: Word32, -- TODO: Confirm whether this is UTC or user's local time
+      _creationDate        :: UTCTime,
       _flags1              :: Word32,
       _flags2              :: Word32,
       _metaInfoLength      :: Word32,

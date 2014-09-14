@@ -12,6 +12,7 @@ import Data.ByteString as BS
 import Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import Data.Text.Encoding
+import Data.Time.Clock.POSIX
 import Data.Word
 import Test.QuickCheck
 import Test.QuickCheck.Instances()
@@ -44,7 +45,7 @@ arbitraryHeaderMatching :: RecordInfo -> Blocks -> Gen Header
 arbitraryHeaderMatching metadata blocks = do
   fDescription <- replicateM 64 $ choose(0,127) :: Gen [Word8]
   fFileId <- arbitrary
-  fCreationDate <- arbitrary
+  fCreationDate <- posixSecondsToUTCTime <$> fromIntegral <$> (arbitrary :: Gen Word32)
   fFlags1 <- arbitrary
   fFlags2 <- arbitrary
   fMystery <- arbitrary

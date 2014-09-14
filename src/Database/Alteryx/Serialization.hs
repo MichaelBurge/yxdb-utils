@@ -21,8 +21,6 @@ module Database.Alteryx.Serialization
 import Database.Alteryx.Fields
 import Database.Alteryx.Types
 
-import Debug.Trace
-
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
 import qualified Control.Newtype as NT
 import Control.Applicative
@@ -41,6 +39,7 @@ import Data.Maybe (isJust, listToMaybe)
 import Data.Text as T
 import Data.Text.Encoding
 import qualified Data.Text.Lazy as TL
+import Data.Time.Clock.POSIX
 import Text.XML
 import Text.XML.Cursor as XMLC
     (
@@ -281,7 +280,7 @@ instance Binary Header where
       putByteString actualDescriptionBS
       putByteString paddingDescriptionBS
       putWord32le   $ header ^. fileId
-      putWord32le   $ header ^. creationDate
+      putWord32le   $ truncate $ utcTimeToPOSIXSeconds $ header ^. creationDate
       putWord32le   $ header ^. flags1
       putWord32le   $ header ^. flags2
       putWord32le   $ header ^. metaInfoLength
@@ -309,7 +308,7 @@ instance Binary Header where
         return $ Header {
             _description         = fDescription,
             _fileId              = fFileId,
-            _creationDate        = fCreationDate,
+            _creationDate        = posixSecondsToUTCTime $ fromIntegral fCreationDate,
             _flags1              = fFlags1,
             _flags2              = fFlags2,
             _metaInfoLength      = fMetaInfoLength,
