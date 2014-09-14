@@ -66,8 +66,8 @@ yieldBlock :: (MonadResource m) => FilePath -> BlockRange -> Source m BS.ByteStr
 yieldBlock  filepath (from, to) = do
   let numBytes = fromIntegral $ to - from
   rawBlock <- readRange filepath (Just from) (Just numBytes)
-  let block = runGet (label ("streamBlocks" ++ show (from, numBytes)) $ getBlock) $ BSL.fromStrict rawBlock
-  yield block
+  let blocks = runGet (label ("streamBlocks" ++ show (from, numBytes)) getBlocks) $ BSL.fromStrict rawBlock
+  yieldMany blocks
 
 yieldBlocks :: (MonadResource m) => FilePath -> BlockRanges -> Source m BS.ByteString
 yieldBlocks filepath ranges = forM_ ranges $ yieldBlock filepath

@@ -85,11 +85,14 @@ getValue :: Field -> Get (Maybe FieldValue)
 getValue field =
     let getFixedString :: Int -> (BS.ByteString -> Text) -> Get (Maybe Text)
         getFixedString charBytes decoder =
-          let mNumBytes = (charBytes*) <$> (1+) <$> field ^. fieldSize
+          let mNumBytes = (charBytes*) <$> field ^. fieldSize
           in case mNumBytes of
             Just numBytes -> do
               bs <- getByteString numBytes
-              return $ Just $ decoder bs
+              isNull <- getWord8
+              return $ if isNull > 0
+                       then Nothing
+                       else Just $ decoder bs
             Nothing -> error "getValue: String field had no size"
         getVarString :: Get (Maybe Text)
         getVarString = do

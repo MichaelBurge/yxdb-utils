@@ -3,7 +3,7 @@
 
 module Database.Alteryx.Serialization
     (
-     getBlock,
+     getBlocks,
      getRecord,
      getValue,
      putBlock,
@@ -20,6 +20,8 @@ module Database.Alteryx.Serialization
 
 import Database.Alteryx.Fields
 import Database.Alteryx.Types
+
+import Debug.Trace
 
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
 import qualified Control.Newtype as NT
@@ -223,6 +225,7 @@ instance Binary BlockIndex where
       putWord32le $ fromIntegral $ iMax + 1
       mapM_ (putWord64le . fromIntegral) $ elems blockIndex
 
+-- TODO: This should probably be named 'getBlock'. The existing 'getBlock' is more like 'getMiniBlock', where a 'miniblock' are a collection of records that can be compressed or not together but is not listed in the block index. A block consists of many miniblocks - the final miniblock is usually much smaller than the others, since it's truncated to fit a record thrteshold.
 getBlocks :: Get [BS.ByteString]
 getBlocks = do
   done <- isEmpty
