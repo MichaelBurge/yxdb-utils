@@ -17,6 +17,11 @@ import GHC.Ptr
 import System.IO.Unsafe (unsafePerformIO)
 import Foreign.Marshal.Alloc
 
+import Debug.Trace
+
+maximumAutomaticMemoryLimit :: Int
+maximumAutomaticMemoryLimit = 67108864 -- 64 MB
+
 mapChunks :: (BS.ByteString -> BS.ByteString) -> BSL.ByteString -> BSL.ByteString
 mapChunks f bs = BSL.fromChunks . map f . BSL.toChunks $ bs
 
@@ -33,15 +38,18 @@ _runFunctionInNewBufferSafe f bs numOutputBytes = do
        then return $ Just BS.empty
        else do
          output <- mallocBytes numOutputBytes
+--         traceShowM $ (input, len, output, numOutputBytes)
          res <- f input len output numOutputBytes
          if res == 0
-           then return Nothing
+           then do
+             free output
+             return Nothing
            else do
-             outBs <- unsafePackMallocCStringLen (output, res)
+             outBs <- unsafePackMallocCStringLen (output, res) -- should this be 'output'?
              return $ Just outBs
 
-_runFunctionInNewBufferWithSizeGuess ::(Ptr CChar -> Int -> Ptr CChar -> Int -> IO Int) -> BS.ByteString -> IO BS.ByteString
-_runFunctionInNewBufferWithSizeGuess f bs =
+_runFunctionInNewBufferWithSizeGuess :: Int -> (Ptr CChar -> Int -> Ptr CChar -> Int -> IO Int) -> BS.ByteString -> IO BS.ByteString
+_runFunctionInNewBufferWithSizeGuess maximumSize f bs =
     if BS.null bs
     then return $ BS.empty
     else do
@@ -52,13 +60,15 @@ _runFunctionInNewBufferWithSizeGuess f bs =
                    "Codec.Compression.LZF.ByteString: Invalid size" ++ show size
                result <- _runFunctionInNewBufferSafe f bs size
                case result of
-                 Nothing -> try $ size * 2
+                 Nothing -> if size > maximumSize
+                               then error $ "_runFunctionInNewBufferWithSizeGuess: Bailing out due to size limit. (Requested, Cap): " ++ show (size, maximumSize)
+                               else try $ size * 2
                  Just outBs -> return outBs
            try initialGuess
 
 decompressByteString :: BS.ByteString -> BS.ByteString
 decompressByteString bs =
-    unsafePerformIO $ _runFunctionInNewBufferWithSizeGuess decompress bs 
+    unsafePerformIO $ _runFunctionInNewBufferWithSizeGuess maximumAutomaticMemoryLimit decompress bs 
 
 decompressByteStringFixed :: Int -> BS.ByteString -> Maybe BS.ByteString
 decompressByteStringFixed size bs =
@@ -66,7 +76,7 @@ decompressByteStringFixed size bs =
 
 compressByteString :: BS.ByteString -> BS.ByteString
 compressByteString bs =
-    unsafePerformIO $ _runFunctionInNewBufferWithSizeGuess compress bs
+    unsafePerformIO $ _runFunctionInNewBufferWithSizeGuess maximumAutomaticMemoryLimit compress bs
 
 compressByteStringFixed :: Int -> BS.ByteString -> Maybe BS.ByteString
 compressByteStringFixed size bs =

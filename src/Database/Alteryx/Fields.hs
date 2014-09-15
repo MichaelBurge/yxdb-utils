@@ -10,13 +10,13 @@ module Database.Alteryx.Fields
 
 import Control.Applicative
 import Control.Lens
-import Data.Bimap as Bimap (Bimap(..), fromList, lookup, lookupR)
+import Data.Bimap as Bimap (Bimap, fromList, lookup, lookupR)
 import Data.Binary
 import Data.Binary.C()
 import Data.Binary.Get
 import Data.Binary.Put
 import Data.Bits
-import Data.Decimal (Decimal(..))
+import Data.Decimal (Decimal)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.Int

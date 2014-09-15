@@ -4,12 +4,16 @@ module Tests.Database.Alteryx.Arbitrary where
 
 import Database.Alteryx
 
+import Conduit
 import Control.Applicative
 import Control.Lens hiding (elements)
 import Control.Monad
 import Data.Array.IArray
+import Data.Binary
+import Data.Binary.Put
 import Data.ByteString as BS
 import Data.ByteString.Lazy as BSL
+import Data.Maybe
 import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Time.Clock.POSIX
@@ -20,8 +24,7 @@ import Test.QuickCheck.Instances()
 instance Arbitrary YxdbFile where
   arbitrary = do
     fMetadata   <- arbitrary
-    blockSize   <- choose(4,1000)
-    fBlocks     <- resize blockSize $ arbitraryBlockMatching fMetadata
+    fBlocks     <- arbitraryBlocksMatching fMetadata
     fHeader     <- arbitraryHeaderMatching fMetadata fBlocks
     fBlockIndex <- arbitrary
 
@@ -34,15 +37,14 @@ instance Arbitrary YxdbFile where
       _yxdbFileBlockIndex = fBlockIndex
     }
 
-arbitraryBlockMatching :: RecordInfo -> Gen Block
-arbitraryBlockMatching metadata =
-    sized $ \blockSize -> do
-      when (blockSize < 4) $ fail $ "Invalid block size" ++ show blockSize
-      blockBS <- vector $ blockSize - 4 :: Gen [Word8]
-      return $ Block $ BSL.pack blockBS
+arbitraryBlocksMatching :: RecordInfo -> Gen [Block]
+arbitraryBlocksMatching recordInfo = do
+  records <- arbitraryRecordsMatching recordInfo
+  let blocks = fromJust $ yieldMany records $= recordsToBlocks recordInfo $$ sinkList
+  return blocks
 
-arbitraryHeaderMatching :: RecordInfo -> Block -> Gen Header
-arbitraryHeaderMatching metadata block = do
+arbitraryHeaderMatching :: RecordInfo -> [Block] -> Gen Header
+arbitraryHeaderMatching metadata blocks = do
   fDescription <- replicateM 64 $ choose(0,127) :: Gen [Word8]
   fFileId <- arbitrary
   fCreationDate <- posixSecondsToUTCTime <$> fromIntegral <$> (arbitrary :: Gen Word32)
@@ -52,7 +54,7 @@ arbitraryHeaderMatching metadata block = do
   fSpatialIndexPos <- arbitrary
   let numMetadataBytes = numMetadataBytesActual metadata
   let fMetaInfoLength = fromIntegral $ numMetadataBytes `div` 2
-  let numBlockBytes = numBlockBytesActual block
+  let numBlockBytes = sum $ Prelude.map numBlockBytesActual blocks
   let startOfBlocks = fromIntegral $ headerPageSize + (fromIntegral $ numMetadataBytes)
   let fRecordBlockIndexPos = startOfBlocks + (fromIntegral numBlockBytes)
   fNumRecords <- arbitrary
@@ -76,8 +78,8 @@ arbitraryHeaderMatching metadata block = do
 instance Arbitrary Header where
     arbitrary = do
       metadata <- arbitrary
-      block <- arbitraryBlockMatching metadata
-      arbitraryHeaderMatching metadata block
+      blocks <- arbitraryBlocksMatching metadata
+      arbitraryHeaderMatching metadata blocks
 
 arbitraryRecordsMatching :: RecordInfo -> Gen [Record]
 arbitraryRecordsMatching metadata = do
@@ -99,7 +101,7 @@ arbitraryValueMatching field =
     ]
 
 instance Arbitrary Block where
-    arbitrary = arbitraryBlockMatching =<< arbitrary
+    arbitrary = Prelude.head <$> (arbitraryBlocksMatching =<< arbitrary)
 
 instance Arbitrary FieldType where
     arbitrary = elements [

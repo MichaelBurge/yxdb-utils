@@ -133,6 +133,7 @@ runYxdb2Csv = do
   settings <- get
   let filename = settings ^. settingFilename
   metadata <- liftIO $ getMetadata filename
+  let recordInfo = metadata ^. metadataRecordInfo
   let blockLimiter =
         case settings ^. settingNumBlocks of
           Just n  -> CC.take n
@@ -144,7 +145,7 @@ runYxdb2Csv = do
   runResourceT $
     sourceFileBlocks filename metadata $=
     blockLimiter =$=
-    streamRecords metadata =$=
+    blocksToRecords recordInfo =$=
     recordLimiter =$=
     record2csv =$=
     csv2bytes $$

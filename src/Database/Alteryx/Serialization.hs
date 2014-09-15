@@ -14,6 +14,7 @@ module Database.Alteryx.Serialization
       numBlockBytesActual,
       numBlockBytesHeader,
       parseRecordsUntil,
+      recordsPerBlock,
       startOfBlocksByteIndex
     ) where
 
@@ -49,7 +50,9 @@ import Text.XML.Cursor as XMLC
      fromDocument
     )
 
+recordsPerBlock :: Int
 recordsPerBlock = 0x10000
+
 spatialIndexRecordBlockSize = 32
 headerPageSize :: Int
 headerPageSize = 512

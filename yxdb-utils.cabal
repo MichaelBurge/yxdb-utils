@@ -63,13 +63,15 @@ executable csv2yxdb
     mtl,
     newtype,
     old-locale,
+    primitive,
     reinterpret-cast,
     resourcet,
     text,
     time,
     transformers,
     yxdb-utils,
-    xml-conduit
+    xml-conduit,
+    vector
   ghc-options: -O2 -auto-all -rtsopts
 
 library
@@ -104,13 +106,15 @@ library
     lens,
     newtype,
     old-locale,
+    primitive,
     reinterpret-cast,
     resourcet,
     text,
     text-binary,
     time,
     transformers,
-    xml-conduit
+    xml-conduit,
+    vector
 
 test-suite yxdb-tests
   hs-source-dirs: src, .
@@ -136,6 +140,7 @@ test-suite yxdb-tests
     lens,
     newtype,
     old-locale,
+    primitive,
     quickcheck-instances,
     reinterpret-cast,
     resourcet,
@@ -146,7 +151,8 @@ test-suite yxdb-tests
     text-binary,
     time,
     transformers,
-    xml-conduit
+    xml-conduit,
+    vector
   main-is: Tests/Main.hs
   buildable: True
   hs-source-dirs: src

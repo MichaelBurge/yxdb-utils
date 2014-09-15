@@ -1,24 +1,29 @@
 module Database.Alteryx.StreamingYxdb
        (
+         blocksToRecords,
          getMetadata,
-         streamRecords,
+         recordsToBlocks,
          sourceFileBlocks
        )where
 
+import Conduit
 import Control.Applicative
 import Control.Lens hiding (from, to)
-import Control.Monad
+import Control.Monad as M
+import Control.Monad.Primitive as M
 import Control.Monad.Trans.Resource
 import qualified Control.Newtype as NT
 import Data.Array.Unboxed as A
 import Data.Binary
 import Data.Binary.Get
+import Data.Binary.Put
 import Data.ByteString as BS
 import Data.ByteString.Lazy as BSL
 import Data.Conduit
 import Data.Conduit.Binary
 import Data.Conduit.Combinators as CC
 import Data.Conduit.Serialization.Binary
+import Data.Vector as V (toList)
 
 import Database.Alteryx.Serialization
 import Database.Alteryx.Types
@@ -71,9 +76,15 @@ sourceBlocks filepath ranges = forM_ ranges $ sourceBlock filepath
 sourceFileBlocks :: (MonadResource m) => FilePath -> YxdbMetadata -> Source m Block
 sourceFileBlocks filepath = sourceBlocks filepath . blockRanges
 
-streamRecords :: (MonadThrow m) => YxdbMetadata -> Conduit Block m Record
-streamRecords metadata =
+blocksToRecords :: (MonadThrow m) => RecordInfo -> Conduit Block m Record
+blocksToRecords recordInfo =
   CC.concatMap (BSL.toChunks . NT.unpack) =$=
   conduitGet (getRecord recordInfo)
-  where
-    recordInfo = metadata ^. metadataRecordInfo
+
+recordsToBlocks :: (MonadThrow m) => RecordInfo -> Conduit Record m Block
+recordsToBlocks recordInfo = do
+  allRecords <- CC.sinkList
+  let records = Prelude.take recordsPerBlock allRecords
+  if Prelude.null records
+     then return ()
+     else yield $ Block $ runPut $ M.mapM_ (putRecord recordInfo) records
