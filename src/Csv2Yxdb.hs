@@ -5,6 +5,7 @@ import Database.Alteryx
 import Control.Lens
 import Control.Monad.State
 import Control.Monad.Trans.Resource
+import Data.Attoparsec.Text
 import Data.Conduit as C
 import Data.Conduit.Binary as C
 import Data.Conduit.List as CL
@@ -12,7 +13,6 @@ import Data.Conduit.Text as CT
 import Data.Text as T hiding (null, foldl, head)
 import System.Console.GetOpt
 import System.Environment
-import Text.ParserCombinators.Parsec
 
 data Settings = Settings {
   _settingFilename :: String,
@@ -66,7 +66,7 @@ runMetadata = do
   case mLine of
     Nothing   -> liftIO $ putStrLn "Cannot convert an empty file"
     Just line -> liftIO $ do
-      let eRecordInfo = parse parseCSVHeader filename $ T.unpack line
+      let eRecordInfo = parseOnly parseCSVHeader line
       case eRecordInfo of
         Left e           -> putStrLn $ show e
         Right recordInfo -> printRecordInfo recordInfo

@@ -46,6 +46,7 @@ executable csv2yxdb
   main-is: Csv2Yxdb.hs
   build-depends:
     array,
+    attoparsec,
     base == 4.*,
     bimap,
     binary,
@@ -63,7 +64,6 @@ executable csv2yxdb
     mtl,
     newtype,
     old-locale,
-    parsec,
     primitive,
     reinterpret-cast,
     resourcet,
@@ -80,6 +80,7 @@ executable yxdb2csv
   main-is: Yxdb2Csv.hs
   build-depends:
     array,
+    attoparsec,
     base == 4.*,
     bimap,
     binary,
@@ -97,7 +98,6 @@ executable yxdb2csv
     mtl,
     newtype,
     old-locale,
-    parsec,
     primitive,
     reinterpret-cast,
     resourcet,
@@ -123,6 +123,8 @@ library
     Database.Alteryx.StreamingYxdb
     Database.Alteryx.Types
   build-depends:
+    array,
+    attoparsec,
     Codec-Compression-LZF,
     array,
     base ==4.*,
@@ -141,7 +143,6 @@ library
     lens,
     newtype,
     old-locale,
-    parsec,
     primitive,
     reinterpret-cast,
     resourcet,
@@ -156,6 +157,8 @@ test-suite yxdb-tests
   hs-source-dirs: src, .
   type: exitcode-stdio-1.0
   build-depends:
+    array,
+    attoparsec,
     Codec-Compression-LZF,
     Decimal,
     HUnit,
@@ -176,7 +179,6 @@ test-suite yxdb-tests
     lens,
     newtype,
     old-locale,
-    parsec,
     primitive,
     quickcheck-instances,
     reinterpret-cast,

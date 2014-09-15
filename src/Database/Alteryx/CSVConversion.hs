@@ -11,6 +11,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.Catch hiding (try)
 import qualified Control.Newtype as NT
+import Data.Attoparsec.Text
 import Data.ByteString as BS
 import Data.Conduit
 import Data.Conduit.Text
@@ -20,11 +21,6 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy.Builder.Int as TB
 import qualified Data.Text.Lazy.Builder.RealFloat as TB
-import Text.Parsec.Char
-import Text.Parsec.Combinator
-import qualified Text.Parsec.Language as Language
-import qualified Text.Parsec.Token as Token
-import Text.ParserCombinators.Parsec
 
 import Database.Alteryx.Serialization()
 import Database.Alteryx.Types
@@ -56,21 +52,21 @@ renderFieldValue fieldValue =
     Nothing           -> TB.fromText ""
     _                 -> error $ "renderFieldValue: Unlisted case: " ++ show fieldValue
 
-lexer = Token.makeTokenParser Language.emptyDef
-
-identifier = Token.identifier lexer
-integer    = Token.integer lexer
-natural    = Token.natural lexer
-symbol     = Token.symbol lexer
+between :: Parser a -> Parser a -> Parser b -> Parser b
+between left right middle = do
+  _ <- left
+  x <- middle
+  _ <- right
+  return x
 
 parseFieldType :: Parser (Field -> Field)
 parseFieldType =
-  let parseParens = between (symbol "(") (symbol ")")
-      parseOneArg = parseParens integer
+  let parseParens = between (char '(') (char ')')
+      parseOneArg = parseParens decimal
       parseTwoArgs = parseParens $ do
-        arg1 <- fromInteger <$> integer
-        _ <- symbol ","
-        arg2 <- fromInteger <$> integer
+        arg1 <- decimal
+        _    <- char ','
+        arg2 <- decimal
         return (arg1, arg2)
       parseSize fType = do
         size <- fromInteger <$> parseOneArg
@@ -101,6 +97,9 @@ parseFieldType =
     try $ string "unknown"  *> return (& fieldType .~ FTUnknown)
     ]
 
+identifier :: Parser T.Text
+identifier = T.pack <$> (many $ satisfy $ inClass "a-zA-Z0-9_")
+
 parseCSVHeaderField :: Parser Field
 parseCSVHeaderField =
   let defaultField = Field {
@@ -112,11 +111,11 @@ parseCSVHeaderField =
   in do
     name <- identifier
     applyParameters <- choice [
-      symbol ":" *> parseFieldType,
-                    return id
+      char ':' *> parseFieldType,
+                  return id
       ]
     return $ applyParameters $
-             defaultField & fieldName .~ T.pack name
+             defaultField & fieldName .~ name
 
 parseCSVHeader :: Parser RecordInfo
-parseCSVHeader = RecordInfo <$> parseCSVHeaderField `sepBy` symbol "|"
+parseCSVHeader = RecordInfo <$> parseCSVHeaderField `sepBy` char '|'
