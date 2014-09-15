@@ -1,6 +1,7 @@
 module Database.Alteryx.StreamingYxdb
        (
          blocksToRecords,
+         blocksToYxdbBytes,
          getMetadata,
          recordsToBlocks,
          sourceFileBlocks
@@ -88,3 +89,6 @@ recordsToBlocks recordInfo = do
   if Prelude.null records
      then return ()
      else yield $ Block $ runPut $ M.mapM_ (putRecord recordInfo) records
+
+blocksToYxdbBytes :: (MonadThrow m) => RecordInfo -> Conduit Block m BS.ByteString
+blocksToYxdbBytes recordInfo = error "blocksToYxdbBytes: Unimplemented"

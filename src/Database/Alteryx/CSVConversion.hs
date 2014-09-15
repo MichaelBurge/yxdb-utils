@@ -4,6 +4,7 @@ module Database.Alteryx.CSVConversion
     (
      csv2bytes,
      parseCSVHeader,
+     parseCSVRecord,
      record2csv
     ) where
 
@@ -119,3 +120,34 @@ parseCSVHeaderField =
 
 parseCSVHeader :: Parser RecordInfo
 parseCSVHeader = RecordInfo <$> parseCSVHeaderField `sepBy` char '|'
+
+parseCSVField :: Field -> Parser (Maybe FieldValue)
+parseCSVField field = do
+  c <- peekChar
+  case c of
+    Nothing -> return Nothing
+    Just _ -> Just <$> case field ^. fieldType of
+      FTBool          -> error "parseCSVField: Bool unimplemented"
+      FTByte          -> FVInt16 <$> decimal
+      FTInt16         -> FVInt16 <$> decimal
+      FTInt32         -> FVInt16 <$> decimal
+      FTInt64         -> FVInt16 <$> decimal
+      FTFixedDecimal  -> error "parseCSVField: FixedDecimal unimplemented"
+      FTFloat         -> FVFloat <$> rational
+      FTDouble        -> FVDouble <$> rational
+      FTString        -> FVString <$> takeText
+      FTWString       -> FVWString <$> takeText
+      FTVString       -> FVVString <$> takeText
+      FTVWString      -> FVVWString <$> takeText
+      FTDate          -> error "parseCSVField: Date unimplemented"
+      FTTime          -> error "parseCSVField: Time unimplemented"
+      FTDateTime      -> error "parseCSVField: DateTime unimplemented"
+      FTBlob          -> error "parseCSVField: Blob unimplemented"
+      FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
+      FTUnknown       -> error "parseCSVField: Unknown unimplemented"
+
+    
+
+parseCSVRecord :: RecordInfo -> Parser Record
+parseCSVRecord (RecordInfo fields) = NT.pack <$> mapM parseCSVField fields
+  

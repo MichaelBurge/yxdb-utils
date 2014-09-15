@@ -7,12 +7,14 @@ import Control.Monad.State
 import Control.Monad.Trans.Resource
 import Data.Attoparsec.Text
 import Data.Conduit as C
+import Data.Conduit.Attoparsec as CP
 import Data.Conduit.Binary as C
 import Data.Conduit.List as CL
 import Data.Conduit.Text as CT
 import Data.Text as T hiding (null, foldl, head)
 import System.Console.GetOpt
 import System.Environment
+import System.IO hiding (putStrLn, utf8)
 
 data Settings = Settings {
   _settingFilename :: String,
@@ -54,8 +56,8 @@ getSettings = do
   opts <- parseOptions argv
   return $ processOptions opts
 
-runMetadata :: StateT Settings IO ()
-runMetadata = do
+getRecordInfo :: StateT Settings IO (Maybe RecordInfo)
+getRecordInfo = do
   settings <- get
   let filename = settings ^. settingFilename
   mLine <- runResourceT $
@@ -64,15 +66,42 @@ runMetadata = do
              CT.lines $$
              CL.head
   case mLine of
-    Nothing   -> liftIO $ putStrLn "Cannot convert an empty file"
+    Nothing   -> do
+      liftIO $ putStrLn "Cannot convert an empty file"
+      return Nothing
     Just line -> liftIO $ do
       let eRecordInfo = parseOnly parseCSVHeader line
       case eRecordInfo of
-        Left e           -> putStrLn $ show e
-        Right recordInfo -> printRecordInfo recordInfo
+        Left e           -> do
+          liftIO $ putStrLn $ show e
+          return Nothing
+        Right recordInfo -> return $ Just recordInfo
+
+runMetadata :: StateT Settings IO ()
+runMetadata = do
+  mRecordInfo <- getRecordInfo
+  case mRecordInfo of
+    Nothing -> return ()
+    Just recordInfo -> liftIO $ printRecordInfo recordInfo
 
 runCsv2Yxdb :: StateT Settings IO ()
-runCsv2Yxdb = undefined
+runCsv2Yxdb = do
+  mRecordInfo <- getRecordInfo
+  settings <- get
+  let filename = settings ^. settingFilename
+  case mRecordInfo of
+    Nothing -> return ()
+    Just recordInfo -> do
+      runResourceT $
+        sourceFile filename =$=
+        decode utf8 =$=
+        CT.lines =$=
+        CP.conduitParser (parseCSVRecord recordInfo) =$=
+        CL.map snd =$=
+        recordsToBlocks recordInfo =$=
+        blocksToYxdbBytes recordInfo $$
+        sinkHandle stdout
+  
 
 main :: IO ()
 main = do
