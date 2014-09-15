@@ -101,29 +101,14 @@ printBlocks metadata =
   liftIO $ putStrLn "Blocks:"
   Prelude.mapM_ printBlock $ A.elems $ NT.unpack $ metadata ^. metadataBlockIndex
 
-printRecordInfo :: YxdbMetadata -> StateT Settings IO ()
-printRecordInfo metadata =
-  let printField field =
-        putStrLn $ "  " <>
-                   (field ^. fieldName) <> ": " <>
-                   (T.pack $ show $ field ^. fieldType)
-                   <> case field ^. fieldSize of
-                        Just x -> " - Size: " <> (T.pack $ show x)
-                        Nothing -> ""
-                   <> case field ^. fieldScale of                     
-                        Just x -> " - Scale: " <> (T.pack $ show x)
-                        Nothing -> ""
-                                   
-  in liftIO $ do
-     putStrLn "RecordInfo:"
-     Prelude.mapM_ printField $ NT.unpack $ metadata ^. metadataRecordInfo
+
 
 runMetadata :: StateT Settings IO ()
 runMetadata = do
   settings <- get
   yxdbMetadata <- liftIO $ getMetadata $ settings ^. settingFilename
   printHeader yxdbMetadata
-  printRecordInfo yxdbMetadata
+  liftIO $ printRecordInfo $ yxdbMetadata ^. metadataRecordInfo
   when (settings ^. settingVerbose) $
     printBlocks yxdbMetadata
 

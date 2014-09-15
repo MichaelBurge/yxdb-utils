@@ -4,8 +4,15 @@ import Database.Alteryx
 
 import Control.Lens
 import Control.Monad.State
+import Control.Monad.Trans.Resource
+import Data.Conduit as C
+import Data.Conduit.Binary as C
+import Data.Conduit.List as CL
+import Data.Conduit.Text as CT
+import Data.Text as T hiding (null, foldl, head)
 import System.Console.GetOpt
 import System.Environment
+import Text.ParserCombinators.Parsec
 
 data Settings = Settings {
   _settingFilename :: String,
@@ -34,12 +41,12 @@ parseOptions args =
   case getOpt Permute options args of
     (opts, filename:[], []) -> return $ (&settingFilename .~ filename):opts
     (_, [], [])             -> fail $ "Must provide a filename\n" ++ usageInfo header options
-    (_, _, errors)          -> fail $ concat errors ++ usageInfo header options
+    (_, _, errors)          -> fail $ Prelude.concat errors ++ usageInfo header options
   where
     header = "Usage: csv2yxdb [OPTIONS...] filename"
 
 processOptions :: [Settings -> Settings] -> Settings
-processOptions = foldl (flip ($)) defaultSettings
+processOptions = Prelude.foldl (flip ($)) defaultSettings
 
 getSettings :: IO Settings
 getSettings = do
@@ -48,7 +55,21 @@ getSettings = do
   return $ processOptions opts
 
 runMetadata :: StateT Settings IO ()
-runMetadata = undefined
+runMetadata = do
+  settings <- get
+  let filename = settings ^. settingFilename
+  mLine <- runResourceT $
+             sourceFile filename =$=
+             decode utf8 =$=
+             CT.lines $$
+             CL.head
+  case mLine of
+    Nothing   -> liftIO $ putStrLn "Cannot convert an empty file"
+    Just line -> liftIO $ do
+      let eRecordInfo = parse parseCSVHeader filename $ T.unpack line
+      case eRecordInfo of
+        Left e           -> putStrLn $ show e
+        Right recordInfo -> printRecordInfo recordInfo
 
 runCsv2Yxdb :: StateT Settings IO ()
 runCsv2Yxdb = undefined
