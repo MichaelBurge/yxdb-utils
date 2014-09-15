@@ -62,7 +62,7 @@ parseOptions args =
     (_, [], [])             -> fail $ "Must provide a filename\n" ++ usageInfo header options
     (_, _, errors)          -> fail $ concat errors ++ usageInfo header options
   where
-    header = "Usage: csv2yxdb [OPTIONS...] filename"
+    header = "Usage: yxdb2csv [OPTIONS...] filename"
 
 processOptions :: [Settings -> Settings] -> Settings
 processOptions = foldl (flip ($)) defaultSettings

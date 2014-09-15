@@ -43,7 +43,40 @@ cabal-version:       >=1.8
 
 executable csv2yxdb
   hs-source-dirs: src
-  main-is: Main.hs
+  main-is: Csv2Yxdb.hs
+  build-depends:
+    array,
+    base == 4.*,
+    bimap,
+    binary,
+    binary-conduit,
+    Codec-Compression-LZF,
+    conduit-extra,
+    bytestring,
+    conduit,
+    conduit-combinators,
+    containers,
+    Decimal,
+    exceptions,
+    ghc-prim,
+    lens,
+    mtl,
+    newtype,
+    old-locale,
+    primitive,
+    reinterpret-cast,
+    resourcet,
+    text,
+    time,
+    transformers,
+    yxdb-utils,
+    xml-conduit,
+    vector
+  ghc-options: -O2 -auto-all -rtsopts
+
+executable yxdb2csv
+  hs-source-dirs: src
+  main-is: Yxdb2Csv.hs
   build-depends:
     array,
     base == 4.*,
