@@ -5,6 +5,7 @@ module Database.Alteryx.CSVConversion
      csv2bytes,
      parseCSVHeader,
      parseCSVRecord,
+     parseCSVRecords,
      record2csv
     ) where
 
@@ -12,7 +13,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.Catch hiding (try)
 import qualified Control.Newtype as NT
-import Data.Attoparsec.Text
+import Data.Attoparsec.Text as AT
 import Data.ByteString as BS
 import Data.Conduit
 import Data.Conduit.Text
@@ -144,10 +145,22 @@ parseCSVField field = do
       FTDateTime      -> error "parseCSVField: DateTime unimplemented"
       FTBlob          -> error "parseCSVField: Blob unimplemented"
       FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
-      FTUnknown       -> error "parseCSVField: Unknown unimplemented"
-
-    
+      FTUnknown       -> error "parseCSVField: Unknown unimplemented"    
 
 parseCSVRecord :: RecordInfo -> Parser Record
-parseCSVRecord (RecordInfo fields) = NT.pack <$> mapM parseCSVField fields
-  
+parseCSVRecord (RecordInfo fields) =
+  let parseFields :: [Field] -> Parser ([Maybe FieldValue])
+      parseFields [] = fail "No fields"
+      parseFields [f] = return <$> parseCSVField f
+      parseFields (f:fs) = do
+        text <- AT.takeWhile (\c -> c /= '|' && c /= '\n')
+        let eFV = parseOnly (parseCSVField f) text
+        case eFV of
+          Left e -> error $ show e
+          Right fv -> do
+            fvs <- parseFields fs
+            return $ fv:fvs
+  in NT.pack <$> mapM parseCSVField fields
+
+parseCSVRecords :: RecordInfo -> Parser [Record]
+parseCSVRecords recordInfo = takeText >>= (\t -> return [Record [Just $ FVString t]])

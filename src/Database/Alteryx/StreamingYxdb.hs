@@ -91,4 +91,11 @@ recordsToBlocks recordInfo = do
      else yield $ Block $ runPut $ M.mapM_ (putRecord recordInfo) records
 
 blocksToYxdbBytes :: (MonadThrow m) => RecordInfo -> Conduit Block m BS.ByteString
-blocksToYxdbBytes recordInfo = error "blocksToYxdbBytes: Unimplemented"
+blocksToYxdbBytes recordInfo = do
+  -- We fill the header with padding since we don't know enough to fill it in yet
+  let headerBS = BS.replicate headerPageSize 0
+  yield headerBS
+  let metadataBS = BSL.toStrict $ runPut (put recordInfo)
+  yield metadataBS
+  CC.map (BSL.toStrict . runPut . put)
+    

@@ -2,6 +2,7 @@
 
 import Database.Alteryx
 
+import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Control.Monad.Trans.Resource
@@ -11,6 +12,7 @@ import Data.Conduit.Attoparsec as CP
 import Data.Conduit.Binary as C
 import Data.Conduit.List as CL
 import Data.Conduit.Text as CT
+import Data.Maybe
 import Data.Text as T hiding (null, foldl, head)
 import System.Console.GetOpt
 import System.Environment
@@ -18,6 +20,7 @@ import System.IO hiding (putStrLn, utf8)
 
 data Settings = Settings {
   _settingFilename :: String,
+  _settingInternal :: Bool,
   _settingMetadata :: Bool,
   _settingVerbose  :: Bool
   } deriving (Eq, Show)
@@ -27,6 +30,7 @@ makeLenses ''Settings
 options :: [OptDescr (Settings -> Settings)]
 options =
   [
+    Option ['i'] ["dump-internal"] (NoArg (& settingInternal .~ True)) "Dump internal representation of parsed records",
     Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump deduced metadata about the file",
     Option ['v'] ["verbose"] (NoArg (& settingVerbose .~ True)) "Print extra debugging information on stderr"
   ]
@@ -34,6 +38,7 @@ options =
 defaultSettings :: Settings
 defaultSettings = Settings {
   _settingFilename = error "defaultSettings: Must provide a filename",
+  _settingInternal = False,
   _settingMetadata = False,
   _settingVerbose  = False
   }
@@ -84,24 +89,39 @@ runMetadata = do
     Nothing -> return ()
     Just recordInfo -> liftIO $ printRecordInfo recordInfo
 
-runCsv2Yxdb :: StateT Settings IO ()
-runCsv2Yxdb = do
+getRecordSource :: StateT Settings IO (Source (ResourceT IO) [Record])
+getRecordSource = do
   mRecordInfo <- getRecordInfo
   settings <- get
   let filename = settings ^. settingFilename
   case mRecordInfo of
-    Nothing -> return ()
-    Just recordInfo -> do
-      runResourceT $
-        sourceFile filename =$=
-        decode utf8 =$=
-        CT.lines =$=
-        CP.conduitParser (parseCSVRecord recordInfo) =$=
-        CL.map snd =$=
-        recordsToBlocks recordInfo =$=
-        blocksToYxdbBytes recordInfo $$
-        sinkHandle stdout
-  
+    Nothing -> return $ return ()
+    Just recordInfo ->
+      return $
+        sourceFile filename $=
+        decode utf8 $=
+        CP.conduitParser (parseCSVRecords recordInfo) =$=
+        CL.map snd
+
+runCsv2Internal :: StateT Settings IO ()
+runCsv2Internal = do
+  recordSource <- getRecordSource
+  liftIO $ runResourceT $
+    recordSource $=
+    CL.map (T.pack . show) =$=
+    encode utf8 $$
+    sinkHandle stdout
+
+runCsv2Yxdb :: StateT Settings IO ()
+runCsv2Yxdb = do
+  recordInfo <- fromJust <$> getRecordInfo
+  recordSource <- getRecordSource
+  liftIO $ runResourceT $
+    recordSource $=
+    CL.concat =$=
+    recordsToBlocks recordInfo =$=
+    blocksToYxdbBytes recordInfo $$
+    sinkHandle stdout
 
 main :: IO ()
 main = do
@@ -109,4 +129,5 @@ main = do
   flip evalStateT settings $
     case () of
       _ | settings ^. settingMetadata -> runMetadata
+        | settings ^. settingInternal -> runCsv2Internal
         | otherwise                   -> runCsv2Yxdb

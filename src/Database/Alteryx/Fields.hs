@@ -84,7 +84,7 @@ putValue field value = do
         FTDouble -> do
           put (0 :: CDouble)
           putWord8 1
-        x -> error $ "putValue unimplemented for null values of type" ++ show x
+        x -> error $ "putValue unimplemented for null values of type " ++ show x
 
 getValue :: Field -> Get (Maybe FieldValue)
 getValue field =
