@@ -3,21 +3,25 @@
 module Database.Alteryx.CSVConversion
     (
      csv2bytes,
+     csv2records,
      parseCSVHeader,
-     parseCSVRecord,
-     parseCSVRecords,
      record2csv
     ) where
 
 import Control.Applicative
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch hiding (try)
 import qualified Control.Newtype as NT
 import Data.Attoparsec.Text as AT
 import Data.ByteString as BS
 import Data.Conduit
-import Data.Conduit.Text
+import Data.Conduit.Attoparsec as CP
+import Data.Conduit.List as CL hiding (isolate)
+import Data.Conduit.Text as CT
 import Data.Monoid
+import qualified Data.CSV.Conduit as CSVT
+import qualified Data.CSV.Conduit.Parser.Text as CSVT
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
@@ -145,22 +149,62 @@ parseCSVField field = do
       FTDateTime      -> error "parseCSVField: DateTime unimplemented"
       FTBlob          -> error "parseCSVField: Blob unimplemented"
       FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
-      FTUnknown       -> error "parseCSVField: Unknown unimplemented"    
+      FTUnknown       -> error "parseCSVField: Unknown unimplemented"
 
-parseCSVRecord :: RecordInfo -> Parser Record
-parseCSVRecord (RecordInfo fields) =
-  let parseFields :: [Field] -> Parser ([Maybe FieldValue])
-      parseFields [] = fail "No fields"
-      parseFields [f] = return <$> parseCSVField f
-      parseFields (f:fs) = do
-        text <- AT.takeWhile (\c -> c /= '|' && c /= '\n')
-        let eFV = parseOnly (parseCSVField f) text
-        case eFV of
-          Left e -> error $ show e
-          Right fv -> do
-            fvs <- parseFields fs
-            return $ fv:fvs
-  in NT.pack <$> mapM parseCSVField fields
+-- isolate :: Parser T.Text -> Parser a -> Parser a
+-- isolate rawParser valParser = do
+--   raw <- rawParser
+--   let eVal = parseOnly valParser raw
+--   case eVal of
+--     Left e -> fail $ "isolate: " ++ e
+--     Right val -> return val
 
-parseCSVRecords :: RecordInfo -> Parser [Record]
-parseCSVRecords recordInfo = takeText >>= (\t -> return [Record [Just $ FVString t]])
+-- parseCSVRecord :: CSVT.CSVSettings -> RecordInfo -> Parser Record
+-- parseCSVRecord csvSettings (RecordInfo fields) =
+--   let parseFields :: [Field] -> Parser ([Maybe FieldValue])
+--       parseFields = do
+
+--       parseFields [] = return [] <* endOfLine
+--       parseFields (field:[]) = do
+--         fieldValue <- isolate (takeTill isEndOfLine <* endOfLine)
+--                               (parseCSVField field)
+--         return [fieldValue]
+--       parseFields (field:fields) = do
+--         fieldValue <- isolate (takeTill (=='|') <* char '|') (parseCSVField field)
+--         fieldValues <- parseFields fields
+--         return $ fieldValue : fieldValues
+--   in NT.pack <$> parseFields fields
+
+csvHunks2records :: (MonadThrow m) => RecordInfo -> Conduit [T.Text] m Record
+csvHunks2records recordInfo@(RecordInfo fields) = do
+  mRow <- await
+  case mRow of
+    Nothing -> return ()
+    Just columns -> do
+      let eFieldValues =
+            zipWithM (\field column -> parseOnly (parseCSVField field) column)
+              fields
+              columns
+      case eFieldValues of
+        Left e -> error $ show e
+        Right fieldValues -> do
+          yield $ Record fieldValues
+          csvHunks2records recordInfo
+
+csv2csvHunks :: (MonadThrow m) => CSVT.CSVSettings -> Conduit T.Text m [T.Text]
+csv2csvHunks csvSettings = CP.conduitParser (CSVT.row csvSettings) =$=
+                           CL.map snd =$=
+                           CL.catMaybes
+
+csv2records :: (MonadThrow m) => CSVT.CSVSettings -> Conduit T.Text m Record
+csv2records csvSettings = CT.lines =$= do
+  mHeader <- await
+  case mHeader of
+    Nothing -> return ()
+    Just header -> do
+      let eRecordInfo = parseOnly parseCSVHeader header
+      case eRecordInfo of
+        Left e -> error e
+        Right recordInfo ->
+          csv2csvHunks csvSettings =$=
+          csvHunks2records recordInfo

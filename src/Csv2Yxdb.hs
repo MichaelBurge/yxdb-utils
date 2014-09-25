@@ -8,10 +8,11 @@ import Control.Monad.State
 import Control.Monad.Trans.Resource
 import Data.Attoparsec.Text
 import Data.Conduit as C
-import Data.Conduit.Attoparsec as CP
 import Data.Conduit.Binary as C
 import Data.Conduit.List as CL
 import Data.Conduit.Text as CT
+import qualified Data.CSV.Conduit as CSVT
+import qualified Data.CSV.Conduit.Parser.Text as CSVT
 import Data.Maybe
 import Data.Text as T hiding (null, foldl, head)
 import System.Console.GetOpt
@@ -20,6 +21,7 @@ import System.IO hiding (putStrLn, utf8)
 
 data Settings = Settings {
   _settingFilename :: String,
+  _settingCSV      :: CSVT.CSVSettings,
   _settingInternal :: Bool,
   _settingMetadata :: Bool,
   _settingVerbose  :: Bool
@@ -38,6 +40,7 @@ options =
 defaultSettings :: Settings
 defaultSettings = Settings {
   _settingFilename = error "defaultSettings: Must provide a filename",
+  _settingCSV      = CSVT.defCSVSettings { CSVT.csvSep = '|' },
   _settingInternal = False,
   _settingMetadata = False,
   _settingVerbose  = False
@@ -89,19 +92,14 @@ runMetadata = do
     Nothing -> return ()
     Just recordInfo -> liftIO $ printRecordInfo recordInfo
 
-getRecordSource :: StateT Settings IO (Source (ResourceT IO) [Record])
+getRecordSource :: StateT Settings IO (Source (ResourceT IO) Record)
 getRecordSource = do
-  mRecordInfo <- getRecordInfo
   settings <- get
   let filename = settings ^. settingFilename
-  case mRecordInfo of
-    Nothing -> return $ return ()
-    Just recordInfo ->
-      return $
-        sourceFile filename $=
-        decode utf8 $=
-        CP.conduitParser (parseCSVRecords recordInfo) =$=
-        CL.map snd
+  return $
+    sourceFile filename $=
+    decode utf8 $=
+    csv2records (settings ^. settingCSV)
 
 runCsv2Internal :: StateT Settings IO ()
 runCsv2Internal = do
@@ -118,7 +116,6 @@ runCsv2Yxdb = do
   recordSource <- getRecordSource
   liftIO $ runResourceT $
     recordSource $=
-    CL.concat =$=
     recordsToBlocks recordInfo =$=
     blocksToYxdbBytes recordInfo $$
     sinkHandle stdout

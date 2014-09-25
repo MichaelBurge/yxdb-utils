@@ -56,8 +56,12 @@ putValue field value = do
   case value of
     Just (FVBool x)          -> error "putBool unimplemented"
     Just (FVByte x)          -> error "putByte unimplemented"
-    Just (FVInt16 x)         -> error "putInt16 unimplemented"
-    Just (FVInt32 x)         -> error "putInt32 unimplemented"
+    Just (FVInt16 x)         -> do
+      putWord16le $ fromIntegral x
+      putWord8 0
+    Just (FVInt32 x)         -> do
+      putWord32le $ fromIntegral x
+      putWord8 0
     Just (FVInt64 x)         -> error "putInt64 unimplemented"
     Just (FVFixedDecimal x)  -> error "putFixedDecimal unimplemented"
     Just (FVFloat x)         -> error "putFloat unimplemented"
