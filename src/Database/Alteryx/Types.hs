@@ -97,14 +97,16 @@ data Field = Field {
 } deriving (Eq, Show)
 
 data StreamingCSVStatistics = StreamingCSVStatistics {
-      _statisticsNumRecords   :: Int,
-      _statisticsBlockLengths :: [Int]
+      _statisticsMetadataLength :: Int,
+      _statisticsNumRecords     :: Int,
+      _statisticsBlockLengths   :: [Int]
     }
 
 defaultStatistics :: StreamingCSVStatistics
 defaultStatistics = StreamingCSVStatistics {
-                      _statisticsNumRecords   = 0,
-                      _statisticsBlockLengths = []
+                      _statisticsMetadataLength = 0,
+                      _statisticsNumRecords     = 0,
+                      _statisticsBlockLengths   = []
                     }
 
 instance NT.Newtype Record [Maybe FieldValue] where

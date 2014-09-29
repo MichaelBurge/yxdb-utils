@@ -60,7 +60,7 @@ headerPageSize = 512
 bufferSize :: Int
 bufferSize = 0x40000
 
-dbFileId :: DbType -> Int
+dbFileId :: DbType -> Word32
 dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
 
