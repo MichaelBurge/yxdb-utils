@@ -133,7 +133,7 @@ computeHeaderFromStatistics statistics = do
       _creationDate        = currentTime,
       _flags1              = 0,
       _flags2              = 0,
-      _metaInfoLength      = fromIntegral $ statistics ^. statisticsMetadataLength,
+      _metaInfoLength      = fromIntegral $ (statistics ^. statisticsMetadataLength) `div` 2,
       _mystery             = 0,
       _spatialIndexPos     = 0,
       _recordBlockIndexPos = fromIntegral $ computeBlockIndexPositionFromStatistics statistics,
@@ -142,18 +142,32 @@ computeHeaderFromStatistics statistics = do
       _reservedSpace       = BS.empty
     }
 
+computeStartOfBlocksFromStatistics :: StreamingCSVStatistics -> Int
+computeStartOfBlocksFromStatistics statistics =
+    headerPageSize + (statistics ^. statisticsMetadataLength)
+
 computeBlockIndexPositionFromStatistics :: StreamingCSVStatistics -> Integer
-computeBlockIndexPositionFromStatistics = undefined
+computeBlockIndexPositionFromStatistics statistics =
+    let totalBytes    = Prelude.sum $ statistics ^. statisticsBlockLengths
+        startOfBlocks = computeStartOfBlocksFromStatistics statistics
+    in fromIntegral $ startOfBlocks + totalBytes
 
 computeBlockIndexFromStatistics :: StreamingCSVStatistics -> BlockIndex
-computeBlockIndexFromStatistics = undefined
+computeBlockIndexFromStatistics statistics =
+    let startOfBlocks = computeStartOfBlocksFromStatistics statistics
+        orderedBlockLengths = Prelude.reverse $ statistics ^. statisticsBlockLengths
+        numBlocks = Prelude.length orderedBlockLengths
+    in BlockIndex $
+       listArray (0, numBlocks-1) $
+       Prelude.map (fromIntegral . (startOfBlocks+)) $
+       Prelude.scanl (+) 0 orderedBlockLengths
 
 toBS :: Binary a => a -> BS.ByteString
 toBS = BSL.toStrict . runPut . put
 
-
 sinkYxdbBytes :: (MonadThrow m, MonadIO m) => Handle -> Sink BS.ByteString (State.StateT StreamingCSVStatistics m) ()
 sinkYxdbBytes handle = do
+  CC.sinkHandle handle
   statistics <- lift State.get
   header <- liftIO $ computeHeaderFromStatistics statistics
   let blockIndex   = computeBlockIndexFromStatistics statistics
@@ -167,10 +181,7 @@ sinkYxdbBytes handle = do
 
 sinkRecords :: (MonadThrow m, MonadIO m) => Handle -> RecordInfo -> Sink Record m ()
 sinkRecords handle recordInfo =
-  let statefulConduit :: (MonadThrow m) => StatefulConduit Record m BS.ByteString
-      statefulConduit = recordsToBlocks recordInfo =$=
-                        blocksToYxdbBytes recordInfo
-  in evalStateLC defaultStatistics $
-     recordsToBlocks recordInfo =$=
-     blocksToYxdbBytes recordInfo =$
-     sinkYxdbBytes handle
+    evalStateLC defaultStatistics $
+      recordsToBlocks recordInfo =$=
+      blocksToYxdbBytes recordInfo =$
+      sinkYxdbBytes handle
