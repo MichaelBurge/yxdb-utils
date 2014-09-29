@@ -151,30 +151,6 @@ parseCSVField field = do
       FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
       FTUnknown       -> error "parseCSVField: Unknown unimplemented"
 
--- isolate :: Parser T.Text -> Parser a -> Parser a
--- isolate rawParser valParser = do
---   raw <- rawParser
---   let eVal = parseOnly valParser raw
---   case eVal of
---     Left e -> fail $ "isolate: " ++ e
---     Right val -> return val
-
--- parseCSVRecord :: CSVT.CSVSettings -> RecordInfo -> Parser Record
--- parseCSVRecord csvSettings (RecordInfo fields) =
---   let parseFields :: [Field] -> Parser ([Maybe FieldValue])
---       parseFields = do
-
---       parseFields [] = return [] <* endOfLine
---       parseFields (field:[]) = do
---         fieldValue <- isolate (takeTill isEndOfLine <* endOfLine)
---                               (parseCSVField field)
---         return [fieldValue]
---       parseFields (field:fields) = do
---         fieldValue <- isolate (takeTill (=='|') <* char '|') (parseCSVField field)
---         fieldValues <- parseFields fields
---         return $ fieldValue : fieldValues
---   in NT.pack <$> parseFields fields
-
 csvHunks2records :: (MonadThrow m) => RecordInfo -> Conduit [T.Text] m Record
 csvHunks2records recordInfo@(RecordInfo fields) = do
   mRow <- await

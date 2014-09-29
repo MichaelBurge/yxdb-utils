@@ -210,7 +210,6 @@ putRecord (RecordInfo fields) (Record fieldValues) = zipWithM_ putValue fields f
 getRecord :: RecordInfo -> Get Record
 getRecord (RecordInfo fields) = Record <$> mapM getValue fields
 
-
 instance Binary BlockIndex where
     get = do
       arraySize <- label "Index Array Size" $ fromIntegral <$> getWord32le
@@ -273,7 +272,7 @@ instance Binary Header where
       let actualDescriptionBS  = BS.take 64 $ encodeUtf8 $ header ^. description
       let numPaddingBytes      = fromIntegral $ 64 - BS.length actualDescriptionBS
       let paddingDescriptionBS = BSL.toStrict $ BSL.take numPaddingBytes $ BSL.repeat 0
-      
+
       putByteString actualDescriptionBS
       putByteString paddingDescriptionBS
       putWord32le   $ header ^. fileId

@@ -21,6 +21,7 @@ import System.IO hiding (putStrLn, utf8)
 
 data Settings = Settings {
   _settingFilename :: String,
+  _settingOutput   :: FilePath,
   _settingCSV      :: CSVT.CSVSettings,
   _settingInternal :: Bool,
   _settingMetadata :: Bool,
@@ -32,14 +33,16 @@ makeLenses ''Settings
 options :: [OptDescr (Settings -> Settings)]
 options =
   [
-    Option ['i'] ["dump-internal"] (NoArg (& settingInternal .~ True)) "Dump internal representation of parsed records",
-    Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump deduced metadata about the file",
-    Option ['v'] ["verbose"] (NoArg (& settingVerbose .~ True)) "Print extra debugging information on stderr"
+   Option ['o'] ["output"] (ReqArg (\o -> (& settingOutput .~ o)) "Output filename" ) "Name of the output file",
+   Option ['i'] ["dump-internal"] (NoArg (& settingInternal .~ True)) "Dump internal representation of parsed records",
+   Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump deduced metadata about the file",
+   Option ['v'] ["verbose"] (NoArg (& settingVerbose .~ True)) "Print extra debugging information on stderr"
   ]
 
 defaultSettings :: Settings
 defaultSettings = Settings {
   _settingFilename = error "defaultSettings: Must provide a filename",
+  _settingOutput   = error "defaultsettings: Must provide an output file",
   _settingCSV      = CSVT.defCSVSettings { CSVT.csvSep = '|' },
   _settingInternal = False,
   _settingMetadata = False,
@@ -97,7 +100,7 @@ getRecordSource = do
   settings <- get
   let filename = settings ^. settingFilename
   return $
-    sourceFile filename $=
+    sourceFile filename =$=
     decode utf8 $=
     csv2records (settings ^. settingCSV)
 
@@ -112,13 +115,14 @@ runCsv2Internal = do
 
 runCsv2Yxdb :: StateT Settings IO ()
 runCsv2Yxdb = do
-  recordInfo <- fromJust <$> getRecordInfo
+  recordInfo   <- fromJust <$> getRecordInfo
   recordSource <- getRecordSource
-  liftIO $ runResourceT $
-    recordSource $=
-    recordsToBlocks recordInfo =$=
-    blocksToYxdbBytes recordInfo $$
-    sinkHandle stdout
+  settings     <- get
+  liftIO $
+      withBinaryFile (settings ^. settingOutput) ReadWriteMode $ \ h -> do
+                runResourceT $
+                  recordSource $$
+                  sinkRecords h recordInfo
 
 main :: IO ()
 main = do

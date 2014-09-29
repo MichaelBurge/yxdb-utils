@@ -1,10 +1,12 @@
+{-# LANGUAGE RankNTypes #-}
+
 module Database.Alteryx.StreamingYxdb
        (
-         blocksToRecords,
-         blocksToYxdbBytes,
-         getMetadata,
-         recordsToBlocks,
-         sourceFileBlocks
+        blocksToRecords,
+        sinkRecords,
+        getMetadata,
+        recordsToBlocks,
+        sourceFileBlocks
        )where
 
 import Conduit
@@ -13,6 +15,7 @@ import Control.Lens hiding (from, to)
 import Control.Monad as M
 import Control.Monad.Primitive as M
 import Control.Monad.Trans.Resource
+import qualified Control.Monad.Trans.State.Lazy as State
 import qualified Control.Newtype as NT
 import Data.Array.Unboxed as A
 import Data.Binary
@@ -25,6 +28,7 @@ import Data.Conduit.Binary
 import Data.Conduit.Combinators as CC
 import Data.Conduit.Serialization.Binary
 import Data.Vector as V (toList)
+import System.IO
 
 import Database.Alteryx.Serialization
 import Database.Alteryx.Types
@@ -39,10 +43,10 @@ getMetadata filepath = runResourceT $ do
 
   recordInfoBS <- readRange filepath (Just headerPageSize) (Just $ numMetadataBytesHeader header)
   let recordInfo = decode $ BSL.fromStrict recordInfoBS :: RecordInfo
-  
+
   blockIndexBS <- readRange filepath (Just $ fromIntegral $ header ^. recordBlockIndexPos) Nothing
   let blockIndex = decode $ BSL.fromStrict blockIndexBS :: BlockIndex
-  
+
   return YxdbMetadata {
     _metadataHeader     = header,
     _metadataRecordInfo = recordInfo,
@@ -82,20 +86,70 @@ blocksToRecords recordInfo =
   CC.concatMap (BSL.toChunks . NT.unpack) =$=
   conduitGet (getRecord recordInfo)
 
-recordsToBlocks :: (MonadThrow m) => RecordInfo -> Conduit Record m Block
+type StatefulConduit a m b = Conduit a (State.StateT StreamingCSVStatistics m) b
+
+recordsToBlocks :: (MonadThrow m) => RecordInfo -> StatefulConduit Record m Block
 recordsToBlocks recordInfo = do
   allRecords <- CC.sinkList
   let records = Prelude.take recordsPerBlock allRecords
   if Prelude.null records
      then return ()
-     else yield $ Block $ runPut $ M.mapM_ (putRecord recordInfo) records
+     else do
+       let numRecords = Prelude.length records
+       lift $ State.modify' (& statisticsNumRecords %~ (+numRecords))
+       yield $ Block $ runPut $ M.mapM_ (putRecord recordInfo) records
+       recordsToBlocks recordInfo
 
-blocksToYxdbBytes :: (MonadThrow m) => RecordInfo -> Conduit Block m BS.ByteString
+
+blocksToYxdbBytes :: (MonadThrow m) => RecordInfo -> StatefulConduit Block m BS.ByteString
 blocksToYxdbBytes recordInfo = do
   -- We fill the header with padding since we don't know enough to fill it in yet
   let headerBS = BS.replicate headerPageSize 0
   yield headerBS
   let metadataBS = BSL.toStrict $ runPut (put recordInfo)
   yield metadataBS
-  CC.map (BSL.toStrict . runPut . put)
-    
+  let putBlockWithIndex :: (MonadThrow m) => StatefulConduit Block m BS.ByteString
+      putBlockWithIndex = do
+        mBlock <- await
+        case mBlock of
+          Nothing -> return ()
+          Just block -> do
+            let bs = BSL.toStrict $ runPut $ put block
+                bsLen = BS.length bs
+            lift $ State.modify' (& statisticsBlockLengths %~ (bsLen:))
+            yield bs
+            putBlockWithIndex
+  putBlockWithIndex
+
+computeHeaderFromStatistics :: StreamingCSVStatistics -> Header
+computeHeaderFromStatistics = undefined
+
+computeBlockIndexFromStatistics :: StreamingCSVStatistics -> BlockIndex
+computeBlockIndexFromStatistics = undefined
+
+toBS :: Binary a => a -> BS.ByteString
+toBS = BSL.toStrict . runPut . put
+
+
+sinkYxdbBytes :: (MonadThrow m, MonadIO m) => Handle -> Sink BS.ByteString (State.StateT StreamingCSVStatistics m) ()
+sinkYxdbBytes handle = do
+  statistics <- lift State.get
+  let header = computeHeaderFromStatistics statistics
+      blockIndex = computeBlockIndexFromStatistics statistics
+      headerBS = toBS header
+      blockIndexBS = toBS blockIndex
+  liftIO $ do
+    hSeek handle AbsoluteSeek 0
+    BS.hPut handle headerBS
+    hSeek handle SeekFromEnd 0
+    BS.hPut handle blockIndexBS
+
+sinkRecords :: (MonadThrow m, MonadIO m) => Handle -> RecordInfo -> Sink Record m ()
+sinkRecords handle recordInfo =
+  let statefulConduit :: (MonadThrow m) => StatefulConduit Record m BS.ByteString
+      statefulConduit = recordsToBlocks recordInfo =$=
+                        blocksToYxdbBytes recordInfo
+  in evalStateLC defaultStatistics $
+     recordsToBlocks recordInfo =$=
+     blocksToYxdbBytes recordInfo =$
+     sinkYxdbBytes handle

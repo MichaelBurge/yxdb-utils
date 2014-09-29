@@ -96,6 +96,17 @@ data Field = Field {
       _fieldScale :: Maybe Int
 } deriving (Eq, Show)
 
+data StreamingCSVStatistics = StreamingCSVStatistics {
+      _statisticsNumRecords   :: Int,
+      _statisticsBlockLengths :: [Int]
+    }
+
+defaultStatistics :: StreamingCSVStatistics
+defaultStatistics = StreamingCSVStatistics {
+                      _statisticsNumRecords   = 0,
+                      _statisticsBlockLengths = []
+                    }
+
 instance NT.Newtype Record [Maybe FieldValue] where
   pack = Record
   unpack (Record xs) = xs
@@ -120,3 +131,4 @@ makeLenses ''Field
 makeLenses ''YxdbFile
 makeLenses ''Header
 makeLenses ''YxdbMetadata
+makeLenses ''StreamingCSVStatistics
