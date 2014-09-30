@@ -119,7 +119,7 @@ runCsv2Yxdb = do
   recordSource <- getRecordSource
   settings     <- get
   liftIO $
-      withBinaryFile (settings ^. settingOutput) ReadWriteMode $ \ h -> do
+      withBinaryFile (settings ^. settingOutput) WriteMode $ \ h -> do
                 runResourceT $
                   recordSource $$
                   sinkRecords h recordInfo

@@ -110,6 +110,7 @@ blocksToYxdbBytes recordInfo = do
   let headerBS = BS.replicate headerPageSize 0
   yield headerBS
   let metadataBS = BSL.toStrict $ runPut (put recordInfo)
+  lift $ State.modify' (& statisticsMetadataLength .~ BS.length metadataBS)
   yield metadataBS
   let putBlockWithIndex :: (MonadThrow m) => StatefulConduit Block m BS.ByteString
       putBlockWithIndex = do
@@ -160,6 +161,7 @@ computeBlockIndexFromStatistics statistics =
     in BlockIndex $
        listArray (0, numBlocks-1) $
        Prelude.map (fromIntegral . (startOfBlocks+)) $
+       Prelude.init $
        Prelude.scanl (+) 0 orderedBlockLengths
 
 toBS :: Binary a => a -> BS.ByteString

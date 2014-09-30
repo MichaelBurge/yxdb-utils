@@ -100,11 +100,11 @@ data StreamingCSVStatistics = StreamingCSVStatistics {
       _statisticsMetadataLength :: Int,
       _statisticsNumRecords     :: Int,
       _statisticsBlockLengths   :: [Int]
-    }
+    } deriving (Eq, Show)
 
 defaultStatistics :: StreamingCSVStatistics
 defaultStatistics = StreamingCSVStatistics {
-                      _statisticsMetadataLength = 0,
+                      _statisticsMetadataLength = error "No metadata length",
                       _statisticsNumRecords     = 0,
                       _statisticsBlockLengths   = []
                     }

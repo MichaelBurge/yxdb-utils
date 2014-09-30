@@ -87,11 +87,12 @@ printHeader metadata = do
     putStrLn $ ("  MetaInfoLength: " <>)         $ T.pack $ show $ header ^. metaInfoLength
     putStrLn $ ("  Mystery: " <>)                $ T.pack $ show $ header ^. mystery
     putStrLn $ ("  Spatial Index Position: " <>) $ T.pack $ show $ header ^. spatialIndexPos
+    putStrLn $ ("  Block Index Position: " <>)   $ T.pack $ show $ header ^. recordBlockIndexPos
     putStrLn $ ("  Number of Records: " <>)      $ T.pack $ show $ header ^. numRecords
     putStrLn $ ("  Compression Version: " <>)    $ T.pack $ show $ header ^. compressionVersion
     when (settings ^. settingVerbose) $
       putStrLn $ ("  Reserved Space: " <>)         $ T.pack $ show $ header ^. reservedSpace
-            
+
 
 printBlocks :: YxdbMetadata -> StateT Settings IO ()
 printBlocks metadata =

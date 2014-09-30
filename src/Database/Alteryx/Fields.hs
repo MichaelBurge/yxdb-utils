@@ -70,8 +70,8 @@ putValue field value = do
            put y
            putWord8 0
     Just (FVString x)        -> do
-           putByteString $ encodeUtf16LE $ x
-           putWord16le 0
+           putByteString $ encodeUtf8 $ x -- TODO: This should actually be Latin-1 to match the getter
+           putWord8 0
     Just (FVWString x)       -> do
            putByteString $ encodeUtf16LE $ x
            putWord16le 0
