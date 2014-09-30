@@ -9,6 +9,7 @@ module Database.Alteryx.Serialization
       putRecord,
       putValue,
       headerPageSize,
+      miniblockThreshold,
       numMetadataBytesActual,
       numMetadataBytesHeader,
       numBlockBytesActual,
@@ -56,13 +57,21 @@ import Text.XML.Cursor as XMLC
 import Text.XML.Stream.Render (renderText)
 import Text.XML.Unresolved (toEvents)
 
+-- | Number of records before each block is flushed and added to the block index
 recordsPerBlock :: Int
 recordsPerBlock = 0x10000
 
 spatialIndexRecordBlockSize = 32
+
+-- | Number of bytes taken by the fixed header
 headerPageSize :: Int
 headerPageSize = 512
 
+-- | When writing miniblocks, how many bytes should each miniblock aim for?
+miniblockThreshold :: Int
+miniblockThreshold = 0x10000
+
+-- | When decompressing miniblocks, how many bytes should be allocated for the output?
 bufferSize :: Int
 bufferSize = 0x40000
 

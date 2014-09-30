@@ -10,6 +10,7 @@ module Database.Alteryx.Fields
 
 import Control.Applicative
 import Control.Lens
+import Control.Monad
 import Data.Bimap as Bimap (Bimap, fromList, lookup, lookupR)
 import Data.Binary
 import Data.Binary.C()
@@ -70,8 +71,13 @@ putValue field value = do
            put y
            putWord8 0
     Just (FVString x)        -> do
-           putByteString $ encodeUtf8 $ x -- TODO: This should actually be Latin-1 to match the getter
-           putWord8 0
+           let stringBS = encodeUtf8 x -- TODO: This should actually be Latin-1 to match the getter
+           let numPaddingBytes = case field ^. fieldSize of
+                                   Nothing -> error "putValue: No size given for string value"
+                                   Just x  -> x - BS.length stringBS + 1
+           putByteString $ encodeUtf8 $ x
+           replicateM_ numPaddingBytes $ putWord8 0
+
     Just (FVWString x)       -> do
            putByteString $ encodeUtf16LE $ x
            putWord16le 0

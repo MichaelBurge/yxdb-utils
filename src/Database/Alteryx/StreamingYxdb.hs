@@ -22,11 +22,14 @@ import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
 import Data.ByteString as BS
+import Data.ByteString.Builder as BSB
+import Data.ByteString.Builder.Extra as BSB
 import Data.ByteString.Lazy as BSL
 import Data.Conduit
 import Data.Conduit.Binary
 import Data.Conduit.Combinators as CC
 import Data.Conduit.Serialization.Binary
+import Data.Monoid
 import Data.Text as T
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
@@ -100,7 +103,11 @@ recordsToBlocks recordInfo = do
      else do
        let numRecords = Prelude.length records
        lift $ State.modify' (& statisticsNumRecords %~ (+numRecords))
-       yield $ Block $ runPut $ M.mapM_ (putRecord recordInfo) records
+       let buildOneRecord :: Record -> BSB.Builder
+           buildOneRecord record =
+               let recordBSL = runPut $ putRecord recordInfo record
+               in lazyByteStringThreshold miniblockThreshold recordBSL
+       yield $ Block $ toLazyByteString $ mconcat $ Prelude.map buildOneRecord records
        recordsToBlocks recordInfo
 
 
