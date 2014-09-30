@@ -17,6 +17,7 @@ import Data.Attoparsec.Text as AT
 import Data.ByteString as BS
 import Data.Conduit
 import Data.Conduit.Attoparsec as CP
+import Data.Conduit.Combinators as CC
 import Data.Conduit.List as CL hiding (isolate)
 import Data.Conduit.Text as CT
 import Data.Monoid
@@ -124,7 +125,7 @@ parseCSVHeaderField =
              defaultField & fieldName .~ name
 
 parseCSVHeader :: Parser RecordInfo
-parseCSVHeader = RecordInfo <$> parseCSVHeaderField `sepBy` char '|'
+parseCSVHeader = RecordInfo <$> (parseCSVHeaderField `sepBy` char '|' )
 
 parseCSVField :: Field -> Parser (Maybe FieldValue)
 parseCSVField field = do
@@ -152,25 +153,30 @@ parseCSVField field = do
       FTUnknown       -> error "parseCSVField: Unknown unimplemented"
 
 csvHunks2records :: (MonadThrow m) => RecordInfo -> Conduit [T.Text] m Record
-csvHunks2records recordInfo@(RecordInfo fields) = do
-  mRow <- await
-  case mRow of
-    Nothing -> return ()
-    Just columns -> do
-      let eFieldValues =
-            zipWithM (\field column -> parseOnly (parseCSVField field) column)
-              fields
-              columns
-      case eFieldValues of
-        Left e -> error $ show e
-        Right fieldValues -> do
-          yield $ Record fieldValues
-          csvHunks2records recordInfo
+csvHunks2records recordInfo@(RecordInfo fields) =
+    let numFields = Prelude.length fields
+    in do
+      mRow <- await
+      case mRow of
+        Nothing -> return ()
+        Just [] -> return ()
+        Just columns -> do
+            let eFieldValues =
+                    zipWithM (\field column -> parseOnly (parseCSVField field) column)
+                             fields
+                             columns
+            case eFieldValues of
+              Left e -> fail e
+              Right fieldValues -> do
+                  yield $ Record fieldValues
+                  csvHunks2records recordInfo
 
 csv2csvHunks :: (MonadThrow m) => CSVT.CSVSettings -> Conduit T.Text m [T.Text]
-csv2csvHunks csvSettings = CP.conduitParser (CSVT.row csvSettings) =$=
-                           CL.map snd =$=
-                           CL.catMaybes
+csv2csvHunks csvSettings =
+    CL.map (\x -> T.snoc x '\n') =$=
+    CP.conduitParser (CSVT.row csvSettings) =$=
+    CL.map snd =$=
+    CL.catMaybes
 
 csv2records :: (MonadThrow m) => CSVT.CSVSettings -> Conduit T.Text m Record
 csv2records csvSettings = CT.lines =$= do

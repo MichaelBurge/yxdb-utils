@@ -34,13 +34,17 @@ import Data.Binary.Put
 import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import Data.Conduit
+import Data.Conduit.List (sourceList)
+import Data.Conduit.Lazy (lazyConsume)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, listToMaybe)
 import Data.Text as T
 import Data.Text.Encoding
 import qualified Data.Text.Lazy as TL
 import Data.Time.Clock.POSIX
-import Text.XML
+import System.IO.Unsafe (unsafePerformIO)
+import Text.XML hiding (renderText)
 import Text.XML.Cursor as XMLC
     (
      Cursor,
@@ -49,6 +53,8 @@ import Text.XML.Cursor as XMLC
      element,
      fromDocument
     )
+import Text.XML.Stream.Render (renderText)
+import Text.XML.Unresolved (toEvents)
 
 recordsPerBlock :: Int
 recordsPerBlock = 0x10000
@@ -120,6 +126,15 @@ instance Binary YxdbFile where
         _yxdbFileBlockIndex = fBlockIndex
       }
 
+documentToTextWithoutXMLHeader :: Document -> T.Text
+documentToTextWithoutXMLHeader document =
+  let events = Prelude.tail $ toEvents $ toXMLDocument document
+  in T.concat $
+     unsafePerformIO $
+     lazyConsume $
+     sourceList events $=
+     renderText def
+
 instance Binary RecordInfo where
     put metadata =
       let fieldMap :: Field -> Map.Map Name Text
@@ -154,10 +169,9 @@ instance Binary RecordInfo where
 
           renderMetaInfo metadata =
               encodeUtf16LE $
-              TL.toStrict $
-              flip TL.snoc '\0' $
-              flip TL.snoc '\n' $
-              renderText def $
+              flip T.snoc '\0' $
+              flip T.snoc '\n' $
+              documentToTextWithoutXMLHeader $
               transformToDocument $
               transformMetaInfo metadata
       in putByteString $ renderMetaInfo metadata

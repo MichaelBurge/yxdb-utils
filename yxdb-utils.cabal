@@ -74,7 +74,7 @@ executable csv2yxdb
     yxdb-utils,
     xml-conduit,
     vector
-  ghc-options: -O2 -auto-all -rtsopts
+  ghc-options: -auto-all -rtsopts
 
 executable yxdb2csv
   hs-source-dirs: src
@@ -109,10 +109,10 @@ executable yxdb2csv
     yxdb-utils,
     xml-conduit,
     vector
-  ghc-options: -O2 -auto-all -rtsopts
+  ghc-options: -auto-all -rtsopts
 
 library
-  ghc-options: -O2
+--  ghc-options: -O2
   hs-source-dirs: src
   exposed-modules:
     Codec.Compression.LZF.ByteString,
