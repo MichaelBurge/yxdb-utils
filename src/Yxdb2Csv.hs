@@ -27,6 +27,7 @@ import System.IO hiding (putStrLn)
 import System.Locale
 
 data Settings = Settings {
+  _settingDecompress :: Bool,
   _settingMetadata   :: Bool,
   _settingNumBlocks  :: Maybe Int,
   _settingNumRecords :: Maybe Int,
@@ -43,11 +44,13 @@ options =
     Option ['b'] ["num-blocks"] (ReqArg (set settingNumBlocks) "Number of blocks") "Only output the given number of blocks",
     Option ['r'] ["num-records"] (ReqArg (set settingNumRecords) "Number of records") "Only output the given number of records, per block",
     Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump the file's metadata",
-    Option ['v'] ["verbose"] (NoArg (& settingVerbose .~ True)) "Print extra debugging information on stderr"
+    Option ['v'] ["verbose"] (NoArg (& settingVerbose .~ True)) "Print extra debugging information on stderr",
+    Option ['d'] ["decompress-blocks"] (NoArg (& settingDecompress .~ True)) "Debug: Decompress blocks, but don't try to interpret them."
   ]
 
 defaultSettings :: Settings
 defaultSettings = Settings {
+  _settingDecompress = False,
   _settingMetadata   = False,
   _settingNumBlocks  = Nothing,
   _settingNumRecords = Nothing,
@@ -113,6 +116,32 @@ runMetadata = do
   when (settings ^. settingVerbose) $
     printBlocks yxdbMetadata
 
+getBlockLimiter :: (MonadThrow m) => StateT Settings IO (Conduit Block m Block)
+getBlockLimiter = do
+   settings <- get
+   return $ case settings ^. settingNumBlocks of
+              Just n  -> CC.take n
+              Nothing -> CC.map id
+
+getRecordLimiter :: (MonadThrow m) => StateT Settings IO (Conduit Record m Record)
+getRecordLimiter = do
+   settings <- get
+   return $ case settings ^. settingNumRecords of
+              Just n  -> CC.take n
+              Nothing -> CC.map id
+
+runDecompress :: StateT Settings IO ()
+runDecompress = do
+  settings <- get
+  let filename = settings ^. settingFilename
+  metadata <- liftIO $ getMetadata filename
+  let recordInfo = metadata ^. metadataRecordInfo
+  blockLimiter <- getBlockLimiter
+  runResourceT $
+    sourceFileBlocks filename metadata $=
+    blockLimiter =$=
+    blocksToDecompressedBytes $$
+    sinkHandle stdout
 
 runYxdb2Csv :: StateT Settings IO ()
 runYxdb2Csv = do
@@ -120,14 +149,9 @@ runYxdb2Csv = do
   let filename = settings ^. settingFilename
   metadata <- liftIO $ getMetadata filename
   let recordInfo = metadata ^. metadataRecordInfo
-  let blockLimiter =
-        case settings ^. settingNumBlocks of
-          Just n  -> CC.take n
-          Nothing -> CC.map id
-  let recordLimiter =
-        case settings ^. settingNumRecords of
-          Just n -> CC.take n
-          Nothing -> CC.map id
+  blockLimiter <- getBlockLimiter
+  recordLimiter <- getRecordLimiter
+
   runResourceT $
     sourceFileBlocks filename metadata $=
     blockLimiter =$=
@@ -142,5 +166,6 @@ main = do
   settings <- getSettings
   flip evalStateT settings $
     case () of
-      _ | settings ^. settingMetadata -> runMetadata
-        | otherwise                   -> runYxdb2Csv
+      _ | settings ^. settingMetadata   -> runMetadata
+        | settings ^. settingDecompress -> runDecompress
+        | otherwise                     -> runYxdb2Csv

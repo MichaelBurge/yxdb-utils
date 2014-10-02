@@ -51,11 +51,16 @@ renderFieldValue :: Maybe FieldValue -> TB.Builder
 renderFieldValue fieldValue =
   -- TODO: Floating point values need to get their size information from the metadata
   case fieldValue of
-    Just (FVDouble f) -> TB.formatRealFloat TB.Fixed (Just 4) f
-    Just (FVInt16 x)  -> TB.decimal x
-    Just (FVInt32 x)  -> TB.decimal x
-    Just (FVInt64 x)  -> TB.decimal x
-    Just (FVString x) -> TB.fromText x
+    Just (FVFloat f)    -> TB.formatRealFloat TB.Fixed (Just 4) f
+    Just (FVDouble f)   -> TB.formatRealFloat TB.Fixed (Just 4) f
+    Just (FVByte x)     -> TB.decimal x
+    Just (FVInt16 x)    -> TB.decimal x
+    Just (FVInt32 x)    -> TB.decimal x
+    Just (FVInt64 x)    -> TB.decimal x
+    Just (FVString x)   -> TB.fromText x
+    Just (FVWString x)  -> TB.fromText x
+    Just (FVVString x)  -> TB.fromText x
+    Just (FVVWString x) -> TB.fromText x
     Nothing           -> TB.fromText ""
     _                 -> error $ "renderFieldValue: Unlisted case: " ++ show fieldValue
 

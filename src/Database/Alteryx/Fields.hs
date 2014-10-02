@@ -98,9 +98,9 @@ putValue field value = do
 
 getValue :: Field -> Get (Maybe FieldValue)
 getValue field =
-    let getFixedString :: Int -> (BS.ByteString -> Text) -> Get (Maybe Text)
-        getFixedString charBytes decoder =
-          let mNumBytes = (charBytes*) <$> field ^. fieldSize
+    let getFixedStringWithSize :: Maybe Int -> Int -> (BS.ByteString -> Text) -> Get (Maybe Text)
+        getFixedStringWithSize size charBytes decoder =
+          let mNumBytes = (charBytes*) <$> size
           in case mNumBytes of
             Just numBytes -> do
               bs <- getByteString numBytes
@@ -109,6 +109,8 @@ getValue field =
                        then Nothing
                        else Just $ decoder bs
             Nothing -> error "getValue: String field had no size"
+        getFixedString :: Int -> (BS.ByteString -> Text) -> Get (Maybe Text)
+        getFixedString = getFixedStringWithSize $ field ^. fieldSize
         getVarString :: Get (Maybe Text)
         getVarString = do
           initialLength <- getWord32le
@@ -119,33 +121,29 @@ getValue field =
                  in do
                    bs <- getByteString lengthInBytes
                    return $ Just $ decodeUtf16LE bs
+        getWithNullByte :: Get a -> Get (Maybe a)
+        getWithNullByte getter = do
+          x <- getter
+          isNull <- getWord8
+          return $ if isNull > 0
+                   then Nothing
+                   else Just x
     in case field ^. fieldType of
          FTBool          -> error "getBool unimplemented"
-         FTByte          -> error "getByte unimplemented"
-         FTInt16         -> do
-           int <- fromIntegral <$> getWord16le :: Get Int16
-           _ <- getWord8
-           return $ Just $ FVInt16 int
-         FTInt32         -> do
-           int <- fromIntegral <$> getWord32le :: Get Int32
-           _ <- getWord8
-           return $ Just $ FVInt32 int
-         FTInt64         -> error "getInt64 unimplemented"
-         FTFixedDecimal  -> error "getFixedDecimal unimplemented"
-         FTFloat         -> error "getFloat unimplemented"
-         FTDouble        -> do
-           double <- get :: Get CDouble
-           isNull <- getWord8
-           return $ if isNull > 0
-                    then Nothing
-                    else Just $ FVDouble $ realToFrac double
-         FTString        -> (FVString <$>) <$> getFixedString 1 decodeLatin1
-         FTWString       -> (FVWString <$>) <$> getFixedString 2 decodeUtf16LE
-         FTVString       -> (FVVString <$>) <$> getVarString
-         FTVWString      -> (FVVWString <$>) <$> getVarString
-         FTDate          -> error "getDate unimplemented"
-         FTTime          -> error "getTime unimplemented"
-         FTDateTime      -> error "getDateTime unimplemented"
+         FTByte          -> fmap (FVByte  . fromIntegral) <$> getWithNullByte getWord8
+         FTInt16         -> fmap (FVInt16 . fromIntegral) <$> getWithNullByte getWord16le
+         FTInt32         -> fmap (FVInt32 . fromIntegral) <$> getWithNullByte getWord32le
+         FTInt64         -> fmap (FVInt64 . fromIntegral) <$> getWithNullByte getWord64le
+         FTFixedDecimal  -> fmap FVString <$> getFixedString 1 decodeLatin1 -- TODO: WRONG!
+         FTFloat         -> fmap (FVFloat . realToFrac) <$> getWithNullByte (get :: Get CFloat)
+         FTDouble        -> fmap (FVDouble . realToFrac) <$> getWithNullByte (get :: Get CDouble)
+         FTString        -> fmap FVString <$> getFixedString 1 decodeLatin1
+         FTWString       -> fmap FVWString <$> getFixedString 2 decodeUtf16LE
+         FTVString       -> fmap FVVString <$> getVarString
+         FTVWString      -> fmap FVVWString <$> getVarString
+         FTDate          -> fmap FVString <$> getFixedStringWithSize (Just 10) 1 decodeLatin1 -- TODO: WRONG!
+         FTTime          -> fmap FVString <$> getFixedStringWithSize (Just 8) 1 decodeLatin1 -- TODO: WRONG!
+         FTDateTime      -> fmap FVString <$> getFixedStringWithSize (Just 19) 1 decodeLatin1 -- TODO: WRONG!
          FTBlob          -> error "getBlob unimplemented"
          FTSpatialObject -> error "getSpatialObject unimplemented"
          FTUnknown       -> error "getUnknown unimplemented"

@@ -2,6 +2,7 @@
 
 module Database.Alteryx.StreamingYxdb
        (
+        blocksToDecompressedBytes,
         blocksToRecords,
         sinkRecords,
         getMetadata,
@@ -91,6 +92,9 @@ blocksToRecords :: (MonadThrow m) => RecordInfo -> Conduit Block m Record
 blocksToRecords recordInfo =
   CC.concatMap (BSL.toChunks . NT.unpack) =$=
   conduitGet (getRecord recordInfo)
+
+blocksToDecompressedBytes :: (MonadThrow m) => Conduit Block m BS.ByteString
+blocksToDecompressedBytes = CC.concatMap (BSL.toChunks . NT.unpack)
 
 type StatefulConduit a m b = Conduit a (State.StateT StreamingCSVStatistics m) b
 
