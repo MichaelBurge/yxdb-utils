@@ -227,11 +227,32 @@ parseXmlRecordInfo cursor = do
 parseInt :: Text -> Int
 parseInt text = read $ T.unpack text :: Int
 
-putRecord :: RecordInfo -> Record -> Put
-putRecord (RecordInfo fields) (Record fieldValues) = zipWithM_ putValue fields fieldValues
+-- | True if any fields have associated variable data in the variable data portion of the record.
+hasVariableData :: RecordInfo -> Bool
+hasVariableData (RecordInfo recordInfo) =
+  let fieldHasVariableData field =
+          case field ^. fieldType of
+            FTVString  -> True
+            FTVWString -> True
+            FTBlob     -> True
+            _          -> False
+  in Prelude.any fieldHasVariableData recordInfo
 
+-- | Writes a record using the provided metadata.
+putRecord :: RecordInfo -> Record -> Put
+putRecord recordInfo@(RecordInfo fields) (Record fieldValues) = do
+  zipWithM_ putValue fields fieldValues
+  when (hasVariableData recordInfo) $ do
+    error "putRecord: Variable data unimplemented"
+
+-- | Records consists of a fixed amount of data for each field, and also a possibly large amoutn of variable data at the end.
 getRecord :: RecordInfo -> Get Record
-getRecord (RecordInfo fields) = Record <$> mapM getValue fields
+getRecord recordInfo@(RecordInfo fields) = do
+  record <- Record <$> mapM getValue fields
+  when (hasVariableData recordInfo) $ do
+    _ <- getVariableData
+    return ()
+  return record
 
 instance Binary BlockIndex where
     get = do

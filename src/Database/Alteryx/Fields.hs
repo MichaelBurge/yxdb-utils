@@ -3,6 +3,7 @@
 module Database.Alteryx.Fields
        (
          getValue,
+         getVariableData,
          parseFieldType,
          putValue,
          renderFieldType
@@ -96,6 +97,29 @@ putValue field value = do
           putWord8 1
         x -> error $ "putValue unimplemented for null values of type " ++ show x
 
+-- | Retrieves the variable data portion of a record.
+getVariableData :: Get (Maybe BS.ByteString)
+getVariableData = do
+  offsetToVarData <- getWord32le
+  let isUsingSmallStringOptimization = (offsetToVarData .&. 0x80000000) == 0 &&
+                                       (offsetToVarData .&. 0x30000000) /= 0
+  case offsetToVarData of
+    0 -> return $ Just BS.empty
+    1 -> return $ Nothing
+    _ | isUsingSmallStringOptimization -> error "getVarString: Small string optimization is unimplemented"
+    _ -> lookAhead $ do
+      _ <- getByteString $ fromIntegral offsetToVarData
+      initialNumBytes <- getWord32le
+      numBytesSize <- lookAhead $ odd <$> getWord8
+      numBytes <- (`shiftR` 1) <$>
+                  if numBytesSize
+                  then fromIntegral <$> getWord8
+                  else getWord32le
+      bs <- getByteString $ fromIntegral numBytes
+      return $ Just bs
+
+
+
 getValue :: Field -> Get (Maybe FieldValue)
 getValue field =
     let getFixedStringWithSize :: Maybe Int -> Int -> (BS.ByteString -> Text) -> Get (Maybe Text)
@@ -111,16 +135,10 @@ getValue field =
             Nothing -> error "getValue: String field had no size"
         getFixedString :: Int -> (BS.ByteString -> Text) -> Get (Maybe Text)
         getFixedString = getFixedStringWithSize $ field ^. fieldSize
-        getVarString :: Get (Maybe Text)
-        getVarString = do
-          initialLength <- getWord32le
-          case initialLength of
-            0 -> return $ Just ""
-            1 -> return $ Nothing
-            _ -> let lengthInBytes = fromIntegral $ initialLength `shiftR` 28
-                 in do
-                   bs <- getByteString lengthInBytes
-                   return $ Just $ decodeUtf16LE bs
+
+        getVarString :: (BS.ByteString -> Text) -> Get (Maybe Text)
+        getVarString f = fmap f <$> getVariableData
+
         getWithNullByte :: Get a -> Get (Maybe a)
         getWithNullByte getter = do
           x <- getter
@@ -139,8 +157,8 @@ getValue field =
          FTDouble        -> fmap (FVDouble . realToFrac) <$> getWithNullByte (get :: Get CDouble)
          FTString        -> fmap FVString <$> getFixedString 1 decodeLatin1
          FTWString       -> fmap FVWString <$> getFixedString 2 decodeUtf16LE
-         FTVString       -> fmap FVVString <$> getVarString
-         FTVWString      -> fmap FVVWString <$> getVarString
+         FTVString       -> fmap FVVString <$> getVarString decodeLatin1
+         FTVWString      -> fmap FVVWString <$> getVarString decodeUtf16LE
          FTDate          -> fmap FVString <$> getFixedStringWithSize (Just 10) 1 decodeLatin1 -- TODO: WRONG!
          FTTime          -> fmap FVString <$> getFixedStringWithSize (Just 8) 1 decodeLatin1 -- TODO: WRONG!
          FTDateTime      -> fmap FVString <$> getFixedStringWithSize (Just 19) 1 decodeLatin1 -- TODO: WRONG!
