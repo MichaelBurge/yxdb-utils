@@ -3,7 +3,7 @@
 module Database.Alteryx.Fields
        (
          getValue,
-         getVariableData,
+         getAllVariableData,
          parseFieldType,
          putValue,
          renderFieldType
@@ -97,9 +97,27 @@ putValue field value = do
           putWord8 1
         x -> error $ "putValue unimplemented for null values of type " ++ show x
 
--- | Retrieves the variable data portion of a record.
+-- | Retrieves the bytesting representing all variable data for the current record
+getAllVariableData :: Get BS.ByteString
+getAllVariableData = do
+  numBytes <- fromIntegral <$> getWord32le
+  getByteString numBytes
+
+-- | Retrieves the variable data portion for a single field
 getVariableData :: Get (Maybe BS.ByteString)
 getVariableData = do
+--      numBytes <- fromIntegral <$> (`shiftR` 1) <$> getWord8
+      numBytesSize <- lookAhead $ odd <$> getWord8
+      numBytes <- (`shiftR` 1) <$>
+                  if numBytesSize
+                  then fromIntegral <$> getWord8
+                  else getWord32le
+      bs <- getByteString $ fromIntegral numBytes
+      return $ Just bs
+
+-- | When parsing a field that has variable data, looks ahead to grab this variable data.
+linkedVariableData :: Get (Maybe BS.ByteString)
+linkedVariableData = do
   offsetToVarData <- getWord32le
   let isUsingSmallStringOptimization = (offsetToVarData .&. 0x80000000) == 0 &&
                                        (offsetToVarData .&. 0x30000000) /= 0
@@ -108,15 +126,9 @@ getVariableData = do
     1 -> return $ Nothing
     _ | isUsingSmallStringOptimization -> error "getVarString: Small string optimization is unimplemented"
     _ -> lookAhead $ do
-      _ <- getByteString $ fromIntegral offsetToVarData
-      initialNumBytes <- getWord32le
-      numBytesSize <- lookAhead $ odd <$> getWord8
-      numBytes <- (`shiftR` 1) <$>
-                  if numBytesSize
-                  then fromIntegral <$> getWord8
-                  else getWord32le
-      bs <- getByteString $ fromIntegral numBytes
-      return $ Just bs
+           x <- getByteString $ fromIntegral $ offsetToVarData - 4
+           bs <- getVariableData
+           return bs
 
 
 
@@ -137,7 +149,7 @@ getValue field =
         getFixedString = getFixedStringWithSize $ field ^. fieldSize
 
         getVarString :: (BS.ByteString -> Text) -> Get (Maybe Text)
-        getVarString f = fmap f <$> getVariableData
+        getVarString f = fmap f <$> linkedVariableData
 
         getWithNullByte :: Get a -> Get (Maybe a)
         getWithNullByte getter = do

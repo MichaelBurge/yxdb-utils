@@ -27,6 +27,7 @@ import qualified Control.Newtype as NT
 import Control.Applicative
 import Control.Lens
 import Control.Monad as M
+import Control.Monad.Loops
 import Data.Array.IArray (listArray, bounds, elems)
 import Data.Binary
 import Data.Binary.C ()
@@ -250,7 +251,7 @@ getRecord :: RecordInfo -> Get Record
 getRecord recordInfo@(RecordInfo fields) = do
   record <- Record <$> mapM getValue fields
   when (hasVariableData recordInfo) $ do
-    _ <- getVariableData
+    _ <- getAllVariableData
     return ()
   return record
 
@@ -269,16 +270,16 @@ instance Binary BlockIndex where
       mapM_ (putWord64le . fromIntegral) $ elems blockIndex
 
 instance Binary Block where
-  get = do
-    done <- isEmpty
-    if done
-      then return $ Block BSL.empty
-      else do
-        headBlock <- get :: Get Miniblock
-        tailBlock <- get :: Get Block
-        let x = NT.unpack headBlock
-        let xs = BSL.toChunks $ NT.unpack tailBlock
-        return $ Block $ BSL.fromChunks $ x:xs
+  get =
+    let tryGetOne = do
+          done <- isEmpty
+          if done
+             then return Nothing
+             else Just <$> get :: Get (Maybe Miniblock)
+    in NT.pack <$>
+       BSL.fromChunks <$>
+       Prelude.map NT.unpack <$>
+       unfoldM tryGetOne
   put (Block bs) =
     case BSL.toChunks bs of
       [] -> put $ Miniblock $ BS.empty

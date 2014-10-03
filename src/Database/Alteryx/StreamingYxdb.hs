@@ -90,7 +90,7 @@ sourceFileBlocks filepath = sourceBlocks filepath . blockRanges
 
 blocksToRecords :: (MonadThrow m) => RecordInfo -> Conduit Block m Record
 blocksToRecords recordInfo =
-  CC.concatMap (BSL.toChunks . NT.unpack) =$=
+  blocksToDecompressedBytes =$=
   conduitGet (getRecord recordInfo)
 
 blocksToDecompressedBytes :: (MonadThrow m) => Conduit Block m BS.ByteString
