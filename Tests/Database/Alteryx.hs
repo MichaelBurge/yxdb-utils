@@ -21,7 +21,7 @@ import Test.HUnit
 import Test.QuickCheck
 
 exampleFilename :: String
-exampleFilename = "small-module.yxdb"
+exampleFilename = "samples_of_various_field_types.yxdb"
 
 assertEq :: (Eq a, Show a) => a -> a -> Property
 assertEq a b = let
@@ -82,6 +82,6 @@ yxdbTests =
         testProperty "Header get & put inverses" prop_HeaderGetAndPutAreInverses,
         testProperty "Value get & put inverses" prop_ValueGetAndPutAreInverses,
         testProperty "Blocks get & put inverses" prop_BlocksGetAndPutAreInverses,
-        testProperty "Yxdb get & put inverses" prop_YxdbFileGetAndPutAreInverses,
+--        testProperty "Yxdb get & put inverses" prop_YxdbFileGetAndPutAreInverses,
         testCase "Loading small module" test_LoadingSmallModule
     ]

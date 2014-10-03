@@ -166,6 +166,7 @@ test-suite yxdb-tests
     array,
     attoparsec,
     Codec-Compression-LZF,
+    conduit-combinators,
     Decimal,
     HUnit,
     QuickCheck,

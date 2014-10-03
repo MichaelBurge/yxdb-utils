@@ -5,6 +5,7 @@ module Tests.Database.Alteryx.Arbitrary where
 import Database.Alteryx
 
 import Conduit
+import Data.Conduit.Lift as CL
 import Control.Applicative
 import Control.Lens hiding (elements)
 import Control.Monad
@@ -40,7 +41,7 @@ instance Arbitrary YxdbFile where
 arbitraryBlocksMatching :: RecordInfo -> Gen [Block]
 arbitraryBlocksMatching recordInfo = do
   records <- arbitraryRecordsMatching recordInfo
-  let blocks = fromJust $ yieldMany records $= recordsToBlocks recordInfo $$ sinkList
+  let blocks = fromJust $ yieldMany records $= CL.evalStateLC defaultStatistics (recordsToBlocks recordInfo) $$ sinkList
   return blocks
 
 arbitraryHeaderMatching :: RecordInfo -> [Block] -> Gen Header
