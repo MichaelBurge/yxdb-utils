@@ -164,7 +164,7 @@ getValue field =
          FTInt16         -> fmap (FVInt16 . fromIntegral) <$> getWithNullByte getWord16le
          FTInt32         -> fmap (FVInt32 . fromIntegral) <$> getWithNullByte getWord32le
          FTInt64         -> fmap (FVInt64 . fromIntegral) <$> getWithNullByte getWord64le
-         FTFixedDecimal  -> fmap FVString <$> getFixedString 1 decodeLatin1 -- TODO: WRONG!
+         FTFixedDecimal  -> fmap (FVString . T.filter (/= '\0')) <$> getFixedString 1 decodeLatin1 -- TODO: WRONG!
          FTFloat         -> fmap (FVFloat . realToFrac) <$> getWithNullByte (get :: Get CFloat)
          FTDouble        -> fmap (FVDouble . realToFrac) <$> getWithNullByte (get :: Get CDouble)
          FTString        -> fmap FVString <$> getFixedString 1 decodeLatin1
