@@ -54,34 +54,41 @@ fieldTypeMap =
     ]
 
 putValue :: Field -> Maybe FieldValue -> Put
-putValue field value = do
+putValue field value =
+  let putFixedString :: Int -> T.Text -> (T.Text -> BS.ByteString) -> Put
+      putFixedString bytesPerCharacter text encoder = do
+        let stringBS = encoder text -- TODO: This should actually be Latin-1 to match the getter
+        let numPaddingBytes = case field ^. fieldSize of
+                                Nothing -> error "putValue: No size given for string value"
+                                Just x  -> bytesPerCharacter * x - BS.length stringBS + 1
+        putByteString stringBS
+        replicateM_ numPaddingBytes $ putWord8 0
+  in do
   case value of
     Just (FVBool x)          -> error "putBool unimplemented"
-    Just (FVByte x)          -> error "putByte unimplemented"
+    Just (FVByte x)          -> do
+      putWord8 $ fromIntegral x
+      putWord8 0
     Just (FVInt16 x)         -> do
       putWord16le $ fromIntegral x
       putWord8 0
     Just (FVInt32 x)         -> do
       putWord32le $ fromIntegral x
       putWord8 0
-    Just (FVInt64 x)         -> error "putInt64 unimplemented"
+    Just (FVInt64 x)         -> do
+      putWord64le $ fromIntegral x
+      putWord8 0
     Just (FVFixedDecimal x)  -> error "putFixedDecimal unimplemented"
-    Just (FVFloat x)         -> error "putFloat unimplemented"
+    Just (FVFloat x)         -> do
+      let y = realToFrac x :: CFloat
+      put y
+      putWord8 0
     Just (FVDouble x)        -> do
-           let y = realToFrac x :: CDouble
-           put y
-           putWord8 0
-    Just (FVString x)        -> do
-           let stringBS = encodeUtf8 x -- TODO: This should actually be Latin-1 to match the getter
-           let numPaddingBytes = case field ^. fieldSize of
-                                   Nothing -> error "putValue: No size given for string value"
-                                   Just x  -> x - BS.length stringBS + 1
-           putByteString $ encodeUtf8 $ x
-           replicateM_ numPaddingBytes $ putWord8 0
-
-    Just (FVWString x)       -> do
-           putByteString $ encodeUtf16LE $ x
-           putWord16le 0
+      let y = realToFrac x :: CDouble
+      put y
+      putWord8 0
+    Just (FVString x)        -> putFixedString 1 x encodeUtf8
+    Just (FVWString x)       -> putFixedString 2 x encodeUtf16LE
     Just (FVVString x)       -> error "putVString unimplemented"
     Just (FVVWString x)      -> error "putVWString unimplemented"
     Just (FVDate x)          -> error "putDate unimplemented"
