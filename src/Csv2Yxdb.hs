@@ -14,12 +14,14 @@ import Data.Conduit.Text as CT
 import qualified Data.CSV.Conduit as CSVT
 import qualified Data.CSV.Conduit.Parser.Text as CSVT
 import Data.Maybe
+import Data.Monoid
 import Data.Text as T hiding (null, foldl, head)
 import System.Console.GetOpt
 import System.Environment
 import System.IO hiding (putStrLn, utf8)
 
 data Settings = Settings {
+  _settingHeader   :: Maybe T.Text,
   _settingFilename :: String,
   _settingOutput   :: FilePath,
   _settingCSV      :: CSVT.CSVSettings,
@@ -33,6 +35,7 @@ makeLenses ''Settings
 options :: [OptDescr (Settings -> Settings)]
 options =
   [
+   Option ['h'] ["header"] (ReqArg (\o -> (& settingHeader .~ Just (T.pack o))) "Header line") "If you'd prefer not to include header lines in the CSV file, you can provide it on the command line",
    Option ['o'] ["output"] (ReqArg (\o -> (& settingOutput .~ o)) "Output filename" ) "Name of the output file",
    Option ['i'] ["dump-internal"] (NoArg (& settingInternal .~ True)) "Dump internal representation of parsed records",
    Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump deduced metadata about the file",
@@ -41,6 +44,7 @@ options =
 
 defaultSettings :: Settings
 defaultSettings = Settings {
+  _settingHeader   = Nothing,
   _settingFilename = error "defaultSettings: Must provide a filename",
   _settingOutput   = error "defaultsettings: Must provide an output file",
   _settingCSV      = CSVT.defCSVSettings { CSVT.csvSep = '|' },
@@ -68,25 +72,33 @@ getSettings = do
   return $ processOptions opts
 
 getRecordInfo :: StateT Settings IO (Maybe RecordInfo)
-getRecordInfo = do
-  settings <- get
-  let filename = settings ^. settingFilename
-  mLine <- runResourceT $
-             sourceFile filename =$=
-             decode utf8 =$=
-             CT.lines $$
-             CL.head
-  case mLine of
-    Nothing   -> do
-      liftIO $ putStrLn "Cannot convert an empty file"
-      return Nothing
-    Just line -> liftIO $ do
-      let eRecordInfo = parseOnly parseCSVHeader line
-      case eRecordInfo of
-        Left e           -> do
-          liftIO $ putStrLn $ show e
-          return Nothing
-        Right recordInfo -> return $ Just recordInfo
+getRecordInfo =
+  let readHeaderFromFile = do
+        settings <- get
+        let filename = settings ^. settingFilename
+        mLine <- runResourceT $
+                   sourceFile filename =$=
+                   decode utf8 =$=
+                   CT.lines $$
+                   CL.head
+        return mLine
+  in do
+    settings <- get
+    mLine <- case settings ^. settingHeader of
+               Nothing -> readHeaderFromFile
+               Just x -> return $ Just x
+    case mLine of
+      Nothing   -> do
+        liftIO $ putStrLn "No header found"
+        return Nothing
+      Just line -> liftIO $ do
+        let eRecordInfo = parseOnly parseCSVHeader line
+        case eRecordInfo of
+          Left e           -> do
+            liftIO $ putStrLn $ show e
+            return Nothing
+          Right recordInfo -> return $ Just recordInfo
+
 
 runMetadata :: StateT Settings IO ()
 runMetadata = do
@@ -95,13 +107,22 @@ runMetadata = do
     Nothing -> return ()
     Just recordInfo -> liftIO $ printRecordInfo recordInfo
 
+prependHeader :: T.Text -> Conduit T.Text (ResourceT IO) T.Text
+prependHeader header = do
+  yield $ header <> "\n"
+  CL.map id
+
 getRecordSource :: StateT Settings IO (Source (ResourceT IO) Record)
 getRecordSource = do
   settings <- get
   let filename = settings ^. settingFilename
+  let maybePrependHeader = case settings ^. settingHeader of
+                             Nothing -> CL.map id
+                             Just x  -> prependHeader x
   return $
     sourceFile filename =$=
     decode utf8 $=
+    maybePrependHeader =$=
     csv2records (settings ^. settingCSV)
 
 runCsv2Internal :: StateT Settings IO ()
