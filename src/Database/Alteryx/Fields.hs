@@ -55,14 +55,17 @@ fieldTypeMap =
 
 putValue :: Field -> Maybe FieldValue -> Put
 putValue field value =
-  let putFixedString :: Int -> T.Text -> (T.Text -> BS.ByteString) -> Put
-      putFixedString bytesPerCharacter text encoder = do
-        let stringBS = encoder text -- TODO: This should actually be Latin-1 to match the getter
-        let numPaddingBytes = case field ^. fieldSize of
+  let putFixedString :: Maybe Int -> Int -> T.Text -> (T.Text -> BS.ByteString) -> Put
+      putFixedString size bytesPerCharacter text encoder = do
+        let stringBS = encoder text
+        let numPaddingBytes = case size of
                                 Nothing -> error "putValue: No size given for string value"
-                                Just x  -> bytesPerCharacter * x - BS.length stringBS + 1
+                                Just x  -> bytesPerCharacter * x - BS.length stringBS
         putByteString stringBS
         replicateM_ numPaddingBytes $ putWord8 0
+        putWord8 0
+      size = field ^. fieldSize
+      fType = field ^. fieldType
   in do
   case value of
     Just (FVBool x)          -> error "putBool unimplemented"
@@ -87,8 +90,12 @@ putValue field value =
       let y = realToFrac x :: CDouble
       put y
       putWord8 0
-    Just (FVString x)        -> putFixedString 1 x encodeUtf8
-    Just (FVWString x)       -> putFixedString 2 x encodeUtf16LE
+    Just (FVString x) | fType == FTDate     -> putFixedString (Just 10) 1 x encodeUtf8
+    Just (FVString x) | fType == FTTime     -> putFixedString (Just 8)  1 x encodeUtf8
+    Just (FVString x) | fType == FTDateTime -> putFixedString (Just 19) 1 x encodeUtf8
+ -- TODO: This should actually be Latin-1 on FVString to match the getter
+    Just (FVString x)        -> putFixedString size 1 x encodeUtf8
+    Just (FVWString x)       -> putFixedString size 2 x encodeUtf16LE
     Just (FVVString x)       -> error "putVString unimplemented"
     Just (FVVWString x)      -> error "putVWString unimplemented"
     Just (FVDate x)          -> error "putDate unimplemented"

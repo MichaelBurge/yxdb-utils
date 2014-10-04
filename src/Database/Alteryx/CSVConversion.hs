@@ -101,12 +101,12 @@ parseFieldType =
     try $ string "wstring"  *> parseSize FTWString,
     try $ string "vstring"  *> parseSize FTVString,
     try $ string "vwstring" *> parseSize FTVWString,
+    try $ string "datetime" *> return (& fieldType .~ FTDateTime),
     try $ string "date"     *> return (& fieldType .~ FTDate),
     try $ string "time"     *> return (& fieldType .~ FTTime),
-    try $ string "datetime" *> return (& fieldType .~ FTDateTime),
     try $ string "blob"     *> parseSize FTBlob,
     try $ string "spatial"  *> parseSize FTBlob,
-    try $ string "unknown"  *> return (& fieldType .~ FTUnknown)
+                               return (& fieldType .~ FTUnknown)
     ]
 
 identifier :: Parser T.Text
@@ -143,16 +143,16 @@ parseCSVField field = do
       FTInt16         -> FVInt16 <$> decimal
       FTInt32         -> FVInt32 <$> decimal
       FTInt64         -> FVInt64 <$> decimal
-      FTFixedDecimal  -> error "parseCSVField: FixedDecimal unimplemented"
+      FTFixedDecimal  -> FVString <$> takeText -- TODO: Wrong!
       FTFloat         -> FVFloat <$> rational
       FTDouble        -> FVDouble <$> rational
       FTString        -> FVString <$> takeText
       FTWString       -> FVWString <$> takeText
       FTVString       -> FVVString <$> takeText
       FTVWString      -> FVVWString <$> takeText
-      FTDate          -> error "parseCSVField: Date unimplemented"
-      FTTime          -> error "parseCSVField: Time unimplemented"
-      FTDateTime      -> error "parseCSVField: DateTime unimplemented"
+      FTDate          -> FVString <$> takeText -- TODO: Wrong!
+      FTTime          -> FVString <$> takeText -- TODO: Wrong!
+      FTDateTime      -> FVString <$> takeText -- TODO: Wrong!
       FTBlob          -> error "parseCSVField: Blob unimplemented"
       FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
       FTUnknown       -> error "parseCSVField: Unknown unimplemented"
