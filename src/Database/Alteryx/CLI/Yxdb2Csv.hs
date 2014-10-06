@@ -1,5 +1,7 @@
 {-# LANGUAGE TemplateHaskell,OverloadedStrings #-}
 
+module Database.Alteryx.CLI.Yxdb2Csv where
+
 import Database.Alteryx
 
 import Control.Applicative
@@ -161,8 +163,8 @@ runYxdb2Csv = do
     csv2bytes $$
     sinkHandle stdout
 
-main :: IO ()
-main = do
+yxdb2csvMain :: IO ()
+yxdb2csvMain = do
   settings <- getSettings
   flip evalStateT settings $
     case () of

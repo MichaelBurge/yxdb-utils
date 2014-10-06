@@ -42,75 +42,19 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 executable csv2yxdb
-  hs-source-dirs: src
+  hs-source-dirs: bin-src
   main-is: Csv2Yxdb.hs
   build-depends:
-    array,
-    attoparsec,
     base == 4.*,
-    bimap,
-    binary,
-    binary-conduit,
-    Codec-Compression-LZF,
-    conduit-extra,
-    bytestring,
-    conduit,
-    conduit-combinators,
-    containers,
-    csv-conduit,
-    Decimal,
-    exceptions,
-    ghc-prim,
-    lens,
-    monad-loops,
-    mtl,
-    newtype,
-    old-locale,
-    primitive,
-    reinterpret-cast,
-    resourcet,
-    text,
-    time,
-    transformers,
-    yxdb-utils,
-    xml-conduit,
-    vector
+    yxdb-utils
   ghc-options: -auto-all -rtsopts
 
 executable yxdb2csv
-  hs-source-dirs: src
+  hs-source-dirs: bin-src
   main-is: Yxdb2Csv.hs
   build-depends:
-    array,
-    attoparsec,
     base == 4.*,
-    bimap,
-    binary,
-    binary-conduit,
-    Codec-Compression-LZF,
-    conduit-extra,
-    bytestring,
-    conduit,
-    conduit-combinators,
-    containers,
-    csv-conduit,
-    Decimal,
-    exceptions,
-    ghc-prim,
-    lens,
-    monad-loops,
-    mtl,
-    newtype,
-    old-locale,
-    primitive,
-    reinterpret-cast,
-    resourcet,
-    text,
-    time,
-    transformers,
-    yxdb-utils,
-    xml-conduit,
-    vector
+    yxdb-utils
   ghc-options: -auto-all -rtsopts
 
 library
@@ -118,9 +62,12 @@ library
   hs-source-dirs: src
   exposed-modules:
     Codec.Compression.LZF.ByteString,
+    Database.Alteryx.CLI.Csv2Yxdb
+    Database.Alteryx.CLI.Yxdb2Csv
     Data.Binary.C,
     Database.Alteryx
   other-modules:
+    Database.Alteryx.CLI.PrettyPrinters
     Database.Alteryx.CSVConversion
     Database.Alteryx.Fields
     Database.Alteryx.Serialization
@@ -147,6 +94,7 @@ library
     ghc-prim,
     lens,
     monad-loops,
+    mtl,
     newtype,
     old-locale,
     primitive,
@@ -163,14 +111,12 @@ test-suite yxdb-tests
   hs-source-dirs: src, .
   type: exitcode-stdio-1.0
   build-depends:
-    array,
-    attoparsec,
     Codec-Compression-LZF,
-    conduit-combinators,
     Decimal,
     HUnit,
     QuickCheck,
     array,
+    attoparsec,
     base -any,
     bimap,
     binary,
@@ -199,8 +145,8 @@ test-suite yxdb-tests
     text-binary,
     time,
     transformers,
-    xml-conduit,
-    vector
+    vector,
+    xml-conduit
   main-is: Tests/Main.hs
   buildable: True
   hs-source-dirs: src
