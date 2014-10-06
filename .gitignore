@@ -2,6 +2,14 @@
 AlteryxRDataX
 *.yxdb
 *.gz
+*.pdf
+*.aux
+*.hp
+*.ps
+*.prof
 dist/
 .cabal-sandbox/
 cabal.sandbox.config
+csv2yxdb
+yxdb2csv
+yxdb-tests

@@ -1,19 +1,27 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Tests.Database.Alteryx (yxdbTests) where
 
+import qualified Database.Alteryx.CLI.Csv2Yxdb as C2Y
+import qualified Database.Alteryx.CLI.Yxdb2Csv as Y2C
 import Database.Alteryx
 import Tests.Database.Alteryx.Arbitrary
+import Tests.Database.Utils
 
 import Prelude hiding (readFile)
 
 import Control.Applicative
 import Control.Lens hiding (elements)
 import Control.Monad (replicateM, when)
+import Control.Monad.State (evalStateT)
 import Data.Array.IArray (listArray)
 import Data.Binary
 import Data.Binary.Get (runGet)
 import Data.Binary.Put (runPut)
 import Data.ByteString as BS
 import Data.ByteString.Lazy as BSL
+import Data.Text as T
+import Data.Text.IO as T
 import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
@@ -71,6 +79,20 @@ test_LoadingSmallModule = do
     Left (bytes, msg) -> assertFailure (msg ++ " at " ++ show bytes ++ " bytes")
     Right yxdbFile -> const (return ()) (yxdbFile :: YxdbFile)
 
+test_csv2yxdb2csvIsIdentity :: Assertion
+test_csv2yxdb2csvIsIdentity = do
+  let header = "f1:int(8)|f2:int(16)|f3:int(32)|f4:int(64)|f5:decimal(7,5)|f6:float|f7:double|f8:string(8)|f9:wstring(2)|f10:string(8)|f11:wstring(2)|f12:date|f13:time|f14:datetime"
+  let inputFilename = "test-data/samples_without_header.csv"
+  let outputFilename = "test-data/samples.yxdb"
+  let c2ySettings = C2Y.defaultSettings & C2Y.settingHeader .~ Just header
+                                        & C2Y.settingFilename .~ inputFilename
+                                        & C2Y.settingOutput .~ outputFilename
+  let y2cSettings = Y2C.defaultSettings & Y2C.settingFilename .~ outputFilename
+  evalStateT C2Y.runCsv2Yxdb c2ySettings
+  newCsv <- T.pack <$> (captureStdout $ evalStateT Y2C.runYxdb2Csv y2cSettings)
+  originalCsv <- T.readFile inputFilename
+  assertEqual "CSV to YXDB to CSV" originalCsv newCsv
+
 yxdbTests :: Test.Framework.Test
 yxdbTests =
     testGroup "YXDB" [
@@ -83,5 +105,6 @@ yxdbTests =
         testProperty "Value get & put inverses" prop_ValueGetAndPutAreInverses,
         testProperty "Blocks get & put inverses" prop_BlocksGetAndPutAreInverses,
 --        testProperty "Yxdb get & put inverses" prop_YxdbFileGetAndPutAreInverses,
-        testCase "Loading small module" test_LoadingSmallModule
+        testCase "Loading small module" test_LoadingSmallModule,
+        testCase "CSV to YXDB to CSV is the identity" test_csv2yxdb2csvIsIdentity
     ]
