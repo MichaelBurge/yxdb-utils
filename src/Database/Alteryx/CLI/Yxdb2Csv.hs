@@ -34,7 +34,7 @@ data Settings = Settings {
   _settingNumBlocks  :: Maybe Int,
   _settingNumRecords :: Maybe Int,
   _settingVerbose    :: Bool,
-  _settingFilename   :: String
+  _settingFilename   :: FilePath
   }
 
 makeLenses ''Settings

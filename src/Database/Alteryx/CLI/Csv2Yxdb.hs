@@ -23,7 +23,7 @@ import System.IO hiding (putStrLn, utf8)
 
 data Settings = Settings {
   _settingHeader   :: Maybe T.Text,
-  _settingFilename :: String,
+  _settingFilename :: FilePath,
   _settingOutput   :: FilePath,
   _settingCSV      :: CSVT.CSVSettings,
   _settingInternal :: Bool,

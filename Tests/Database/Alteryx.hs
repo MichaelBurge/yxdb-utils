@@ -79,19 +79,40 @@ test_LoadingSmallModule = do
     Left (bytes, msg) -> assertFailure (msg ++ " at " ++ show bytes ++ " bytes")
     Right yxdbFile -> const (return ()) (yxdbFile :: YxdbFile)
 
+csv2yxdb2csv :: C2Y.Settings -> FilePath -> FilePath -> IO T.Text
+csv2yxdb2csv settings inputFilename outputFilename = do
+  let c2ySettings = settings & C2Y.settingFilename .~ inputFilename
+                             & C2Y.settingOutput .~ outputFilename
+  let y2cSettings = Y2C.defaultSettings & Y2C.settingFilename .~ outputFilename
+  evalStateT C2Y.runCsv2Yxdb c2ySettings
+  newCsv <- T.pack <$> (captureStdout $ evalStateT Y2C.runYxdb2Csv y2cSettings)
+
+  return newCsv
+
+
 test_csv2yxdb2csvIsIdentity :: Assertion
 test_csv2yxdb2csvIsIdentity = do
   let header = "f1:int(8)|f2:int(16)|f3:int(32)|f4:int(64)|f5:decimal(7,5)|f6:float|f7:double|f8:string(8)|f9:wstring(2)|f10:string(8)|f11:wstring(2)|f12:date|f13:time|f14:datetime"
   let inputFilename = "test-data/samples_without_header.csv"
   let outputFilename = "test-data/samples.yxdb"
-  let c2ySettings = C2Y.defaultSettings & C2Y.settingHeader .~ Just header
-                                        & C2Y.settingFilename .~ inputFilename
-                                        & C2Y.settingOutput .~ outputFilename
-  let y2cSettings = Y2C.defaultSettings & Y2C.settingFilename .~ outputFilename
-  evalStateT C2Y.runCsv2Yxdb c2ySettings
-  newCsv <- T.pack <$> (captureStdout $ evalStateT Y2C.runYxdb2Csv y2cSettings)
+  let settings = C2Y.defaultSettings & C2Y.settingHeader .~ Just header
+  newCsv <- csv2yxdb2csv settings inputFilename outputFilename
   originalCsv <- T.readFile inputFilename
   assertEqual "CSV to YXDB to CSV" originalCsv newCsv
+
+test_csv2yxdbQuoteParsing :: Assertion
+test_csv2yxdbQuoteParsing = do
+  let inputFilename = "test-data/quote-parsing.csv"
+  let outputFilename = "test-data/quote-parsing.yxdb"
+  newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
+  assertEqual "" "aoeu\n\"aoeu\"\n" newCsv
+
+test_csv2yxdbDateFormat :: Assertion
+test_csv2yxdbDateFormat = do
+  let inputFilename = "test-data/date-format.csv"
+      outputFilename = "test-data/date-format.yxdb"
+  newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
+  assertEqual "" "500|1|2014-01-01|06:00:00|2014-0-0 06:00:00\n" newCsv
 
 yxdbTests :: Test.Framework.Test
 yxdbTests =
@@ -106,5 +127,7 @@ yxdbTests =
         testProperty "Blocks get & put inverses" prop_BlocksGetAndPutAreInverses,
 --        testProperty "Yxdb get & put inverses" prop_YxdbFileGetAndPutAreInverses,
         testCase "Loading small module" test_LoadingSmallModule,
-        testCase "CSV to YXDB to CSV is the identity" test_csv2yxdb2csvIsIdentity
+        testCase "CSV to YXDB to CSV is the identity" test_csv2yxdb2csvIsIdentity,
+        testCase "Quotes are not used to escape" test_csv2yxdbQuoteParsing,
+        testCase "Can parse ISO style dates" test_csv2yxdbDateFormat
     ]
