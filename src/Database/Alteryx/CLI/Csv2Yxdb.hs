@@ -48,7 +48,7 @@ defaultSettings = Settings {
   _settingHeader   = Nothing,
   _settingFilename = error "defaultSettings: Must provide a filename",
   _settingOutput   = error "defaultsettings: Must provide an output file",
-  _settingCSV      = CSVT.defCSVSettings { CSVT.csvSep = '|' },
+  _settingCSV      = CSVT.defCSVSettings { CSVT.csvSep = '|', CSVT.csvQuoteChar = Nothing },
   _settingInternal = False,
   _settingMetadata = False,
   _settingVerbose  = False
