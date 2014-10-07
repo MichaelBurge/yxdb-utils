@@ -20,6 +20,7 @@ import Data.Binary.Put
 import Data.Bits
 import Data.Decimal (Decimal)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
 import Data.Int
 import Data.Text as T
@@ -66,6 +67,8 @@ putValue field value =
         putWord8 0
       size = field ^. fieldSize
       fType = field ^. fieldType
+      encodeLatin1 :: T.Text -> BS.ByteString
+      encodeLatin1 = BSC.pack . T.unpack
   in do
   case value of
     Just (FVBool x)          -> error "putBool unimplemented"
@@ -94,7 +97,7 @@ putValue field value =
     Just (FVString x) | fType == FTTime     -> putFixedString (Just 8)  1 x encodeUtf8
     Just (FVString x) | fType == FTDateTime -> putFixedString (Just 19) 1 x encodeUtf8
  -- TODO: This should actually be Latin-1 on FVString to match the getter
-    Just (FVString x)        -> putFixedString size 1 x encodeUtf8
+    Just (FVString x)        -> putFixedString size 1 x encodeLatin1
     Just (FVWString x)       -> putFixedString size 2 x encodeUtf16LE
     Just (FVVString x)       -> error "putVString unimplemented"
     Just (FVVWString x)      -> error "putVWString unimplemented"

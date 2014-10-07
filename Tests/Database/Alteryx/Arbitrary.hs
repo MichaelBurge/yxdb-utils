@@ -96,10 +96,11 @@ arbitraryValueMatching field =
   let value =
         case field ^. fieldType of
           FTDouble -> FVDouble <$> arbitrary
-  in oneof [
-    return Nothing,
-    Just <$> value
-    ]
+  in do
+    isNull <- arbitrary
+    if isNull
+       then return Nothing
+       else Just <$> value
 
 instance Arbitrary Block where
     arbitrary = Prelude.head <$> (arbitraryBlocksMatching =<< arbitrary)

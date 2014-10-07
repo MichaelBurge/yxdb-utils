@@ -1,10 +1,11 @@
 module Tests.Database.Utils where
 
+import Data.ByteString as BS
 import GHC.IO.Handle
 import System.IO
 import System.Directory
 
-captureStdout :: IO () -> IO String
+captureStdout :: IO () -> IO BS.ByteString
 captureStdout f = do
   tmpd <- getTemporaryDirectory
   (tmpf, tmph) <- openTempFile tmpd "haskell_stdout"
@@ -13,6 +14,6 @@ captureStdout f = do
   hClose tmph
   f
   hDuplicateTo stdout_dup stdout
-  str <- readFile tmpf
+  bs <- BS.readFile tmpf
   removeFile tmpf
-  return str
+  return bs

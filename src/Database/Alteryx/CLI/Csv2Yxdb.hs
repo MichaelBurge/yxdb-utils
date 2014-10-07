@@ -48,7 +48,7 @@ defaultSettings = Settings {
   _settingHeader   = Nothing,
   _settingFilename = error "defaultSettings: Must provide a filename",
   _settingOutput   = error "defaultsettings: Must provide an output file",
-  _settingCSV      = CSVT.defCSVSettings { CSVT.csvSep = '|', CSVT.csvQuoteChar = Nothing },
+  _settingCSV      = alteryxCsvSettings,
   _settingInternal = False,
   _settingMetadata = False,
   _settingVerbose  = False
@@ -108,24 +108,6 @@ runMetadata = do
     Nothing -> return ()
     Just recordInfo -> liftIO $ printRecordInfo recordInfo
 
-prependHeader :: T.Text -> Conduit T.Text (ResourceT IO) T.Text
-prependHeader header = do
-  yield $ header <> "\n"
-  CL.map id
-
-getRecordSource :: StateT Settings IO (Source (ResourceT IO) Record)
-getRecordSource = do
-  settings <- get
-  let filename = settings ^. settingFilename
-  let maybePrependHeader = case settings ^. settingHeader of
-                             Nothing -> CL.map id
-                             Just x  -> prependHeader x
-  return $
-    sourceFile filename =$=
-    decode utf8 $=
-    maybePrependHeader =$=
-    csv2records (settings ^. settingCSV)
-
 runCsv2Internal :: StateT Settings IO ()
 runCsv2Internal = do
   recordSource <- getRecordSource
@@ -134,6 +116,14 @@ runCsv2Internal = do
     CL.map (T.pack . show) =$=
     encode utf8 $$
     sinkHandle stdout
+
+getRecordSource :: StateT Settings IO (Source (ResourceT IO) Record)
+getRecordSource = do
+  settings <- get
+  let filename = settings ^. settingFilename
+      header = settings ^. settingHeader
+      csvSettings = settings ^. settingCSV
+  return $ sourceCsvRecords filename header csvSettings
 
 runCsv2Yxdb :: StateT Settings IO ()
 runCsv2Yxdb = do

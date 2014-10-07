@@ -14,12 +14,17 @@ import Control.Applicative
 import Control.Lens hiding (elements)
 import Control.Monad (replicateM, when)
 import Control.Monad.State (evalStateT)
+import Control.Monad.Trans.Resource
 import Data.Array.IArray (listArray)
 import Data.Binary
 import Data.Binary.Get (runGet)
 import Data.Binary.Put (runPut)
 import Data.ByteString as BS
+import Data.ByteString.Char8 as BSC
 import Data.ByteString.Lazy as BSL
+import Data.Conduit
+import Data.Conduit.Combinators
+import qualified Data.CSV.Conduit as CSVT
 import Data.Text as T
 import Data.Text.IO as T
 import Test.Framework
@@ -85,16 +90,21 @@ csv2yxdb2csv settings inputFilename outputFilename = do
                              & C2Y.settingOutput .~ outputFilename
   let y2cSettings = Y2C.defaultSettings & Y2C.settingFilename .~ outputFilename
   evalStateT C2Y.runCsv2Yxdb c2ySettings
-  newCsv <- T.pack <$> (captureStdout $ evalStateT Y2C.runYxdb2Csv y2cSettings)
+  newCsv <- T.pack <$> BSC.unpack <$> (captureStdout $ evalStateT Y2C.runYxdb2Csv y2cSettings)
 
   return newCsv
 
+readCsvRecords :: Maybe Text -> FilePath -> IO [Record]
+readCsvRecords header filename =
+    runResourceT $
+      sourceCsvRecords filename header alteryxCsvSettings $$
+      sinkList
 
 test_csv2yxdb2csvIsIdentity :: Assertion
 test_csv2yxdb2csvIsIdentity = do
   let header = "f1:int(8)|f2:int(16)|f3:int(32)|f4:int(64)|f5:decimal(7,5)|f6:float|f7:double|f8:string(8)|f9:wstring(2)|f10:string(8)|f11:wstring(2)|f12:date|f13:time|f14:datetime"
   let inputFilename = "test-data/samples_without_header.csv"
-  let outputFilename = "test-data/samples.yxdb"
+  let outputFilename = "test-data/samples_without_header.yxdb"
   let settings = C2Y.defaultSettings & C2Y.settingHeader .~ Just header
   newCsv <- csv2yxdb2csv settings inputFilename outputFilename
   originalCsv <- T.readFile inputFilename
@@ -114,6 +124,43 @@ test_csv2yxdbDateFormat = do
   newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
   assertEqual "" "500|1|2014-01-01|06:00:00|2014-0-0 06:00:00\n" newCsv
 
+test_recordParsing :: Assertion
+test_recordParsing = do
+  let inputFilename = "test-data/samples.csv"
+      outputFilename = "test-data/samples.yxdb"
+      secondOutputFilename = "test-data/samples.yxdb.csv"
+      expectedRecord =
+          [
+           Record [
+            Just (FVByte 1),
+            Just (FVInt16 256),
+            Just (FVInt32 32768),
+            Just (FVInt64 4294967296),
+            Just (FVString "1.10000"),
+            Just (FVFloat 1.1),
+            Just (FVDouble 1.1),
+            Just (FVString "pl\225tano"),
+            Just (FVWString "\39321\34121"),
+            Just (FVString "pl\225tano"),
+            Just (FVWString "\39321\34121"),
+            Just (FVString "2013-12-31"),
+            Just (FVString "23:34:56"),
+            Just (FVString "2013-12-31 23:34:56")
+           ]
+          ]
+  header <- Prelude.head <$> T.lines <$> T.readFile inputFilename
+  records <- readCsvRecords Nothing inputFilename
+  assertEqual "Parse from CSV" expectedRecord records
+
+  newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
+  yxdbFile <- decodeFile outputFilename :: IO YxdbFile
+
+  T.writeFile secondOutputFilename newCsv
+  newRecords <- readCsvRecords (Just header) secondOutputFilename
+
+  assertEqual "Parse from YXDB" expectedRecord (yxdbFile ^. yxdbFileRecords)
+  assertEqual "New CSV doesn't match old" expectedRecord newRecords
+
 yxdbTests :: Test.Framework.Test
 yxdbTests =
     testGroup "YXDB" [
@@ -129,5 +176,6 @@ yxdbTests =
         testCase "Loading small module" test_LoadingSmallModule,
         testCase "CSV to YXDB to CSV is the identity" test_csv2yxdb2csvIsIdentity,
         testCase "Quotes are not used to escape" test_csv2yxdbQuoteParsing,
-        testCase "Can parse ISO style dates" test_csv2yxdbDateFormat
+        testCase "Can parse ISO style dates" test_csv2yxdbDateFormat,
+        testCase "Example CSV parses into correct structures" test_recordParsing
     ]

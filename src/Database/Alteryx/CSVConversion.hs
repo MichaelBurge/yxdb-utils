@@ -2,20 +2,25 @@
 
 module Database.Alteryx.CSVConversion
     (
+     alteryxCsvSettings,
      csv2bytes,
      csv2records,
      parseCSVHeader,
-     record2csv
+     record2csv,
+     sourceCsvRecords
     ) where
 
 import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch hiding (try)
+import Control.Monad.Trans.Resource
 import qualified Control.Newtype as NT
 import Data.Attoparsec.Text as AT
 import Data.ByteString as BS
+import Data.ByteString.Char8 as BSC
 import Data.Conduit
+import Data.Conduit.Binary as CB
 import Data.Conduit.Attoparsec as CP
 import Data.Conduit.Combinators as CC
 import Data.Conduit.List as CL hiding (isolate)
@@ -31,6 +36,9 @@ import qualified Data.Text.Lazy.Builder.RealFloat as TB
 
 import Database.Alteryx.Serialization()
 import Database.Alteryx.Types
+
+alteryxCsvSettings :: CSVT.CSVSettings
+alteryxCsvSettings = CSVT.defCSVSettings { CSVT.csvSep = '|', CSVT.csvQuoteChar = Nothing }
 
 csv2bytes :: MonadThrow m => Conduit T.Text m BS.ByteString
 csv2bytes = encode utf8
@@ -195,3 +203,19 @@ csv2records csvSettings = CT.lines =$= do
         Right recordInfo ->
           csv2csvHunks csvSettings =$=
           csvHunks2records recordInfo
+
+
+prependHeader :: (MonadResource m) => T.Text -> Conduit T.Text m T.Text
+prependHeader header = do
+  yield $ header <> "\n"
+  CL.map id
+
+sourceCsvRecords :: (MonadResource m) =>  FilePath -> Maybe T.Text -> CSVT.CSVSettings -> Source m Record
+sourceCsvRecords filename header csvSettings =
+  let maybePrependHeader = case header of
+                             Nothing -> CL.map id
+                             Just x  -> prependHeader x
+  in CB.sourceFile filename =$=
+     decode utf8 $=
+     maybePrependHeader =$=
+     csv2records csvSettings

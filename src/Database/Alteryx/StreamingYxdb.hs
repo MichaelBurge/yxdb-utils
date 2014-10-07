@@ -7,7 +7,8 @@ module Database.Alteryx.StreamingYxdb
         sinkRecords,
         getMetadata,
         recordsToBlocks,
-        sourceFileBlocks
+        sourceFileBlocks,
+        sourceFileRecords
        )where
 
 import Conduit
@@ -62,6 +63,13 @@ getMetadata filepath = runResourceT $ do
 
 type BlockRange = (Int, Int)
 type BlockRanges = [BlockRange]
+
+sourceFileRecords :: (MonadResource m, MonadIO m) => FilePath -> Source m Record
+sourceFileRecords filename = do
+  metadata <- liftIO $ getMetadata filename
+  let recordInfo = metadata ^. metadataRecordInfo
+
+  sourceFileBlocks filename metadata $= blocksToRecords recordInfo
 
 blockRanges :: YxdbMetadata -> BlockRanges
 blockRanges metadata =
