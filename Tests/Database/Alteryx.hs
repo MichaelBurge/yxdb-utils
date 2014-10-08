@@ -154,13 +154,28 @@ test_renderNonAnsiCodepointRecord = do
         record = Record [ fieldValue ]
         recordInfo = RecordInfo [ field ]
 
-        csv2csvConduit = record2csv =$=
+        record2recordConduit = record2csv recordInfo =$=
                          csv2bytes =$=
                          CT.decode CT.utf8 =$=
                          csv2records alteryxCsvSettings
-    results <- CL.sourceList [ record ] =$= csv2csvConduit $$ sinkList
-    let result = Prelude.head results
+    newRecords <- runResourceT $ CL.sourceList [ record ] =$= record2recordConduit $$ sinkList
+
+    let result = Prelude.head newRecords
     assertEqual "Converting a non-ANSI character lost information" record result
+
+test_renderNonAnsiCodepointCSVRecord :: Assertion
+test_renderNonAnsiCodepointCSVRecord =
+  let csvText = "derp:string(10)\nplátano\n"
+      recordInfo = RecordInfo [ nonAnsiCodepointField ]
+      csv2csvConduit =
+          csv2records alteryxCsvSettings =$=
+          record2csv recordInfo =$=
+          csv2bytes =$=
+          CT.decode CT.utf8
+
+  in do
+    newCsv <- runResourceT $ CL.sourceList [ csvText ] =$= csv2csvConduit $$ sinkList
+    assertEqual "" csvText $ T.concat newCsv
 
 test_recordParsing :: Assertion
 test_recordParsing = do
@@ -186,7 +201,6 @@ test_recordParsing = do
             Just (FVString "2013-12-31 23:34:56")
            ]
           ]
-  header <- Prelude.head <$> T.lines <$> T.readFile inputFilename
   records <- readCsvRecords Nothing inputFilename
   assertEqual "Parse from CSV" expectedRecord records
 
@@ -194,7 +208,7 @@ test_recordParsing = do
   yxdbFile <- decodeFile outputFilename :: IO YxdbFile
 
   T.writeFile secondOutputFilename newCsv
-  newRecords <- readCsvRecords (Just header) secondOutputFilename
+  newRecords <- readCsvRecords Nothing secondOutputFilename
 
   assertEqual "Parse from YXDB" expectedRecord (yxdbFile ^. yxdbFileRecords)
   assertEqual "New CSV doesn't match old" expectedRecord newRecords
@@ -217,5 +231,6 @@ yxdbTests =
         testCase "Can parse ISO style dates" test_csv2yxdbDateFormat,
         testCase "Example CSV parses into correct structures" test_recordParsing,
         testCase "Rendering a non-ANSI codepoint" test_renderNonAnsiCodepoint,
-        testCase "Rendering a non-ANSI codepoint at record level" test_renderNonAnsiCodepointRecord
+        testCase "Rendering a non-ANSI codepoint at record level" test_renderNonAnsiCodepointRecord,
+        testCase "Rendering a non-ANSI codepoint from CSV to CSV" test_renderNonAnsiCodepointCSVRecord
     ]

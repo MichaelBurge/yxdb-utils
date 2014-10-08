@@ -159,7 +159,7 @@ runYxdb2Csv = do
     blockLimiter =$=
     blocksToRecords recordInfo =$=
     recordLimiter =$=
-    record2csv =$=
+    record2csv recordInfo =$=
     csv2bytes $$
     sinkHandle stdout
 

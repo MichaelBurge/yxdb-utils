@@ -25,6 +25,7 @@ import Data.Conduit.Attoparsec as CP
 import Data.Conduit.Combinators as CC
 import Data.Conduit.List as CL hiding (isolate)
 import Data.Conduit.Text as CT
+import Data.Maybe
 import Data.Monoid
 import qualified Data.CSV.Conduit as CSVT
 import qualified Data.CSV.Conduit.Parser.Text as CSVT
@@ -45,17 +46,21 @@ alteryxCsvSettings = CSVT.defCSVSettings { CSVT.csvSep = '|', CSVT.csvQuoteChar 
 csv2bytes :: MonadThrow m => Conduit T.Text m BS.ByteString
 csv2bytes = encode utf8
 
-record2csv :: Monad m => Conduit Record m T.Text
-record2csv = do
-  mRecord <- await
-  case mRecord of
-    Just record -> do
-      let line = T.intercalate "|" $
-                 Prelude.map (TL.toStrict . TB.toLazyText . renderFieldValue) $
-                 NT.unpack record
-      yield $ line `mappend` "\n"
-      record2csv
-    Nothing -> return ()
+record2csv :: (MonadResource m) => RecordInfo -> Conduit Record m T.Text
+record2csv recordInfo =
+  let record2csvWithoutHeader = do
+        mRecord <- await
+        case mRecord of
+          Just record -> do
+            let line = T.intercalate "|" $
+                       Prelude.map (TL.toStrict . TB.toLazyText . renderFieldValue) $
+                       NT.unpack record
+            yield $ line `mappend` "\n"
+            record2csvWithoutHeader
+          Nothing -> return ()
+  in do
+    yield $ csvHeader recordInfo
+    record2csvWithoutHeader
 
 renderFieldValue :: Maybe FieldValue -> TB.Builder
 renderFieldValue fieldValue =
@@ -216,38 +221,40 @@ csvHeaderField :: Field -> T.Text
 csvHeaderField field =
   let renderSizeScale name = name <>
                              "(" <>
-                             (T.pack $ show (field ^. fieldSize)) <>
+                             (T.pack $ show (fromJust $ field ^. fieldSize)) <>
                              "," <>
-                             (T.pack $ show (field ^. fieldScale)) <>
+                             (T.pack $ show (fromJust $ field ^. fieldScale)) <>
                              ")"
       renderSize name = name <>
                         "(" <>
-                        (T.pack $ show (field ^. fieldSize)) <>
+                        (T.pack $ show (fromJust $ field ^. fieldSize)) <>
                         ")"
-  in case field ^. fieldType of
-       FTBool         -> "bool"
-       FTByte         -> "int(8)"
-       FTInt16        -> "int(16)"
-       FTInt32        -> "int(32)"
-       FTInt64        -> "int(64)"
-       FTFixedDecimal -> renderSizeScale "decimal"
-       FTFloat        -> "float"
-       FTDouble       -> "double"
-       FTString       -> renderSize "string"
-       FTWString      -> renderSize "wstring"
-       FTVString      -> "vstring"
-       FTVWString     -> "vwstring"
-       FTDateTime     -> "datetime"
-       FTDate         -> "date"
-       FTTime         -> "time"
-       FTBlob         -> "blob"
-       FTSpatial      -> "spatial"
-       FTUnknown      -> "unknown"
+      typeIndicator =
+          case field ^. fieldType of
+            FTBool          -> "bool"
+            FTByte          -> "int(8)"
+            FTInt16         -> "int(16)"
+            FTInt32         -> "int(32)"
+            FTInt64         -> "int(64)"
+            FTFixedDecimal  -> renderSizeScale "decimal"
+            FTFloat         -> "float"
+            FTDouble        -> "double"
+            FTString        -> renderSize "string"
+            FTWString       -> renderSize "wstring"
+            FTVString       -> "vstring"
+            FTVWString      -> "vwstring"
+            FTDateTime      -> "datetime"
+            FTDate          -> "date"
+            FTTime          -> "time"
+            FTBlob          -> "blob"
+            FTSpatialObject -> "spatial"
+            FTUnknown       -> "unknown"
+  in field ^. fieldName <> ":" <> typeIndicator <> "\n"
 
 
 -- | The appropriate CSV header that describes a record. Example: "month:date|market:int(16)|num_households:int(32)"
 csvHeader :: RecordInfo -> T.Text
-csvHeader (RecordInfo fields) = T.intercalate "|" $ map csvHeaderField fields
+csvHeader (RecordInfo fields) = T.intercalate "|" $ Prelude.map csvHeaderField fields
 
 -- | Stream the parsed records from a CSV file
 sourceCsvRecords :: (MonadResource m) =>  FilePath -> Maybe T.Text -> CSVT.CSVSettings -> Source m Record
