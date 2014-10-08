@@ -24,12 +24,14 @@ import Data.ByteString.Char8 as BSC
 import Data.ByteString.Lazy as BSL
 import Data.Conduit
 import Data.Conduit.Combinators
+import Data.Conduit.Lift
 import Data.Conduit.List as CL
 import qualified Data.Conduit.Text as CT
 import qualified Data.CSV.Conduit as CSVT
 import Data.Text as T
-import Data.Text.Encoding
+import Data.Text.Encoding as T
 import Data.Text.IO as T
+
 import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
@@ -93,7 +95,7 @@ csv2yxdb2csv settings inputFilename outputFilename = do
                              & C2Y.settingOutput .~ outputFilename
   let y2cSettings = Y2C.defaultSettings & Y2C.settingFilename .~ outputFilename
   evalStateT C2Y.runCsv2Yxdb c2ySettings
-  newCsv <- T.pack <$> BSC.unpack <$> (captureStdout $ evalStateT Y2C.runYxdb2Csv y2cSettings)
+  newCsv <- T.decodeUtf8 <$> (captureStdout $ evalStateT Y2C.runYxdb2Csv y2cSettings)
 
   return newCsv
 
@@ -105,11 +107,9 @@ readCsvRecords header filename =
 
 test_csv2yxdb2csvIsIdentity :: Assertion
 test_csv2yxdb2csvIsIdentity = do
-  let header = "f1:int(8)|f2:int(16)|f3:int(32)|f4:int(64)|f5:decimal(7,5)|f6:float|f7:double|f8:string(8)|f9:wstring(2)|f10:string(8)|f11:wstring(2)|f12:date|f13:time|f14:datetime"
-  let inputFilename = "test-data/samples_without_header.csv"
-  let outputFilename = "test-data/samples_without_header.yxdb"
-  let settings = C2Y.defaultSettings & C2Y.settingHeader .~ Just header
-  newCsv <- csv2yxdb2csv settings inputFilename outputFilename
+  let inputFilename = "test-data/samples.csv"
+  let outputFilename = "test-data/samples.yxdb"
+  newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
   originalCsv <- T.readFile inputFilename
   assertEqual "CSV to YXDB to CSV" originalCsv newCsv
 
@@ -117,15 +117,17 @@ test_csv2yxdbQuoteParsing :: Assertion
 test_csv2yxdbQuoteParsing = do
   let inputFilename = "test-data/quote-parsing.csv"
   let outputFilename = "test-data/quote-parsing.yxdb"
+  oldCsv <- T.readFile inputFilename
   newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
-  assertEqual "" "aoeu\n\"aoeu\"\n" newCsv
+  assertEqual "" oldCsv newCsv
 
 test_csv2yxdbDateFormat :: Assertion
 test_csv2yxdbDateFormat = do
   let inputFilename = "test-data/date-format.csv"
       outputFilename = "test-data/date-format.yxdb"
+  oldCsv <- T.readFile inputFilename
   newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
-  assertEqual "" "500|1|2014-01-01|06:00:00|2014-0-0 06:00:00\n" newCsv
+  assertEqual "" oldCsv newCsv
 
 nonAnsiCodepointFieldValue :: Maybe FieldValue
 nonAnsiCodepointFieldValue = Just $ FVString "plátano"
@@ -176,6 +178,22 @@ test_renderNonAnsiCodepointCSVRecord =
   in do
     newCsv <- runResourceT $ CL.sourceList [ csvText ] =$= csv2csvConduit $$ sinkList
     assertEqual "" csvText $ T.concat newCsv
+
+test_renderNonAnsiCodepointCSV2Record2Block2Record2CSV :: Assertion
+test_renderNonAnsiCodepointCSV2Record2Block2Record2CSV =
+  let csvText = "derp:string(10)\nplátano\n"
+      recordInfo = RecordInfo [ nonAnsiCodepointField ]
+      csv2csvConduit =
+          csv2records alteryxCsvSettings =$=
+          evalStateLC defaultStatistics (recordsToBlocks recordInfo) =$=
+          blocksToRecords recordInfo =$=
+          record2csv recordInfo =$=
+          csv2bytes =$=
+          CT.decode CT.utf8
+  in do
+    newCsv <- runResourceT $ CL.sourceList [ csvText ] =$= csv2csvConduit $$ sinkList
+    assertEqual "" csvText $ T.concat newCsv
+
 
 test_recordParsing :: Assertion
 test_recordParsing = do
@@ -232,5 +250,6 @@ yxdbTests =
         testCase "Example CSV parses into correct structures" test_recordParsing,
         testCase "Rendering a non-ANSI codepoint" test_renderNonAnsiCodepoint,
         testCase "Rendering a non-ANSI codepoint at record level" test_renderNonAnsiCodepointRecord,
-        testCase "Rendering a non-ANSI codepoint from CSV to CSV" test_renderNonAnsiCodepointCSVRecord
+        testCase "Rendering a non-ANSI codepoint from CSV to CSV" test_renderNonAnsiCodepointCSVRecord,
+        testCase "Rendering a non-ANSI codepoint from CSV to YXDB blocks to CSV" test_renderNonAnsiCodepointCSV2Record2Block2Record2CSV
     ]

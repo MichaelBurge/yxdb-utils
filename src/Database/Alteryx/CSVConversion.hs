@@ -249,12 +249,12 @@ csvHeaderField field =
             FTBlob          -> "blob"
             FTSpatialObject -> "spatial"
             FTUnknown       -> "unknown"
-  in field ^. fieldName <> ":" <> typeIndicator <> "\n"
+  in field ^. fieldName <> ":" <> typeIndicator
 
 
 -- | The appropriate CSV header that describes a record. Example: "month:date|market:int(16)|num_households:int(32)"
 csvHeader :: RecordInfo -> T.Text
-csvHeader (RecordInfo fields) = T.intercalate "|" $ Prelude.map csvHeaderField fields
+csvHeader (RecordInfo fields) = T.snoc (T.intercalate "|" $ Prelude.map csvHeaderField fields) '\n'
 
 -- | Stream the parsed records from a CSV file
 sourceCsvRecords :: (MonadResource m) =>  FilePath -> Maybe T.Text -> CSVT.CSVSettings -> Source m Record
