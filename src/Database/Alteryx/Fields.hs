@@ -96,7 +96,6 @@ putValue field value =
     Just (FVString x) | fType == FTDate     -> putFixedString (Just 10) 1 x encodeUtf8
     Just (FVString x) | fType == FTTime     -> putFixedString (Just 8)  1 x encodeUtf8
     Just (FVString x) | fType == FTDateTime -> putFixedString (Just 19) 1 x encodeUtf8
- -- TODO: This should actually be Latin-1 on FVString to match the getter
     Just (FVString x)        -> putFixedString size 1 x encodeLatin1
     Just (FVWString x)       -> putFixedString size 2 x encodeUtf16LE
     Just (FVVString x)       -> error "putVString unimplemented"

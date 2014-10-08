@@ -24,8 +24,11 @@ import Data.ByteString.Char8 as BSC
 import Data.ByteString.Lazy as BSL
 import Data.Conduit
 import Data.Conduit.Combinators
+import Data.Conduit.List as CL
+import qualified Data.Conduit.Text as CT
 import qualified Data.CSV.Conduit as CSVT
 import Data.Text as T
+import Data.Text.Encoding
 import Data.Text.IO as T
 import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)
@@ -124,6 +127,41 @@ test_csv2yxdbDateFormat = do
   newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
   assertEqual "" "500|1|2014-01-01|06:00:00|2014-0-0 06:00:00\n" newCsv
 
+nonAnsiCodepointFieldValue :: Maybe FieldValue
+nonAnsiCodepointFieldValue = Just $ FVString "plátano"
+
+nonAnsiCodepointField :: Field
+nonAnsiCodepointField = Field {
+                          _fieldName = "derp",
+                          _fieldType = FTString,
+                          _fieldSize = Just 10,
+                          _fieldScale = Nothing
+                        }
+
+test_renderNonAnsiCodepoint :: Assertion
+test_renderNonAnsiCodepoint = do
+  let fieldValue = nonAnsiCodepointFieldValue
+      field = nonAnsiCodepointField
+      bs = runPut (putValue field fieldValue)
+      parsedValue = runGet (getValue field) bs
+  assertEqual "Converting a non-ANSI character lost information" fieldValue parsedValue
+
+test_renderNonAnsiCodepointRecord :: Assertion
+test_renderNonAnsiCodepointRecord = do
+    let fieldValue = nonAnsiCodepointFieldValue
+        field = nonAnsiCodepointField
+
+        record = Record [ fieldValue ]
+        recordInfo = RecordInfo [ field ]
+
+        csv2csvConduit = record2csv =$=
+                         csv2bytes =$=
+                         CT.decode CT.utf8 =$=
+                         csv2records alteryxCsvSettings
+    results <- CL.sourceList [ record ] =$= csv2csvConduit $$ sinkList
+    let result = Prelude.head results
+    assertEqual "Converting a non-ANSI character lost information" record result
+
 test_recordParsing :: Assertion
 test_recordParsing = do
   let inputFilename = "test-data/samples.csv"
@@ -139,10 +177,10 @@ test_recordParsing = do
             Just (FVString "1.10000"),
             Just (FVFloat 1.1),
             Just (FVDouble 1.1),
-            Just (FVString "pl\225tano"),
-            Just (FVWString "\39321\34121"),
-            Just (FVString "pl\225tano"),
-            Just (FVWString "\39321\34121"),
+            Just (FVString "plátano"),
+            Just (FVWString "香蕉"),
+            Just (FVString "plátano"),
+            Just (FVWString "香蕉"),
             Just (FVString "2013-12-31"),
             Just (FVString "23:34:56"),
             Just (FVString "2013-12-31 23:34:56")
@@ -177,5 +215,7 @@ yxdbTests =
         testCase "CSV to YXDB to CSV is the identity" test_csv2yxdb2csvIsIdentity,
         testCase "Quotes are not used to escape" test_csv2yxdbQuoteParsing,
         testCase "Can parse ISO style dates" test_csv2yxdbDateFormat,
-        testCase "Example CSV parses into correct structures" test_recordParsing
+        testCase "Example CSV parses into correct structures" test_recordParsing,
+        testCase "Rendering a non-ANSI codepoint" test_renderNonAnsiCodepoint,
+        testCase "Rendering a non-ANSI codepoint at record level" test_renderNonAnsiCodepointRecord
     ]

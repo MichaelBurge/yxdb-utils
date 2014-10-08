@@ -37,9 +37,11 @@ import qualified Data.Text.Lazy.Builder.RealFloat as TB
 import Database.Alteryx.Serialization()
 import Database.Alteryx.Types
 
+-- | Our CSVs are pipe('|')-separated and do not do quoting.
 alteryxCsvSettings :: CSVT.CSVSettings
 alteryxCsvSettings = CSVT.defCSVSettings { CSVT.csvSep = '|', CSVT.csvQuoteChar = Nothing }
 
+-- | All CSV text should be UTF-8 encoded.
 csv2bytes :: MonadThrow m => Conduit T.Text m BS.ByteString
 csv2bytes = encode utf8
 
@@ -210,6 +212,44 @@ prependHeader header = do
   yield $ header <> "\n"
   CL.map id
 
+csvHeaderField :: Field -> T.Text
+csvHeaderField field =
+  let renderSizeScale name = name <>
+                             "(" <>
+                             (T.pack $ show (field ^. fieldSize)) <>
+                             "," <>
+                             (T.pack $ show (field ^. fieldScale)) <>
+                             ")"
+      renderSize name = name <>
+                        "(" <>
+                        (T.pack $ show (field ^. fieldSize)) <>
+                        ")"
+  in case field ^. fieldType of
+       FTBool         -> "bool"
+       FTByte         -> "int(8)"
+       FTInt16        -> "int(16)"
+       FTInt32        -> "int(32)"
+       FTInt64        -> "int(64)"
+       FTFixedDecimal -> renderSizeScale "decimal"
+       FTFloat        -> "float"
+       FTDouble       -> "double"
+       FTString       -> renderSize "string"
+       FTWString      -> renderSize "wstring"
+       FTVString      -> "vstring"
+       FTVWString     -> "vwstring"
+       FTDateTime     -> "datetime"
+       FTDate         -> "date"
+       FTTime         -> "time"
+       FTBlob         -> "blob"
+       FTSpatial      -> "spatial"
+       FTUnknown      -> "unknown"
+
+
+-- | The appropriate CSV header that describes a record. Example: "month:date|market:int(16)|num_households:int(32)"
+csvHeader :: RecordInfo -> T.Text
+csvHeader (RecordInfo fields) = T.intercalate "|" $ map csvHeaderField fields
+
+-- | Stream the parsed records from a CSV file
 sourceCsvRecords :: (MonadResource m) =>  FilePath -> Maybe T.Text -> CSVT.CSVSettings -> Source m Record
 sourceCsvRecords filename header csvSettings =
   let maybePrependHeader = case header of
