@@ -114,7 +114,7 @@ recordsToBlocks recordInfo = do
      then return ()
      else do
        let numRecords = Prelude.length records
-       lift $ State.modify' (& statisticsNumRecords %~ (+numRecords))
+       lift $ State.modify (& statisticsNumRecords %~ (+numRecords))
        let buildOneRecord :: Record -> BSB.Builder
            buildOneRecord record =
                let recordBSL = runPut $ putRecord recordInfo record
@@ -129,7 +129,7 @@ blocksToYxdbBytes recordInfo = do
   let headerBS = BS.replicate headerPageSize 0
   yield headerBS
   let metadataBS = BSL.toStrict $ runPut (put recordInfo)
-  lift $ State.modify' (& statisticsMetadataLength .~ BS.length metadataBS)
+  lift $ State.modify (& statisticsMetadataLength .~ BS.length metadataBS)
   yield metadataBS
   let putBlockWithIndex :: (MonadThrow m) => StatefulConduit Block m BS.ByteString
       putBlockWithIndex = do
@@ -139,7 +139,7 @@ blocksToYxdbBytes recordInfo = do
           Just block -> do
             let bs = BSL.toStrict $ runPut $ put block
                 bsLen = BS.length bs
-            lift $ State.modify' (& statisticsBlockLengths %~ (bsLen:))
+            lift $ State.modify (& statisticsBlockLengths %~ (bsLen:))
             yield bs
             putBlockWithIndex
   putBlockWithIndex
