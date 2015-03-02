@@ -140,7 +140,12 @@ linkedVariableData = do
   case offsetToVarData of
     0 -> return $ Just BS.empty
     1 -> return $ Nothing
-    _ | isUsingSmallStringOptimization -> error "getVarString: Small string optimization is unimplemented"
+    _ | isUsingSmallStringOptimization -> do
+           let byte1 = fromIntegral $ (offsetToVarData .&. 0x000000FF)             :: Word8
+           let byte2 = fromIntegral $ (offsetToVarData .&. 0x0000FF00) `shiftR` 8  :: Word8
+           let byte3 = fromIntegral $ (offsetToVarData .&. 0x00FF0000) `shiftR` 16 :: Word8
+           return $ Just $ BS.pack [ byte1, byte2, byte3 ]
+
     _ -> lookAhead $ do
            x <- getByteString $ fromIntegral $ offsetToVarData - 4
            bs <- getVariableData
@@ -159,7 +164,7 @@ getValue field =
               isNull <- getWord8
               return $ if isNull > 0
                        then Nothing
-                       else Just $ T.filter (/= '\0') $ decoder bs
+                       else Just $ T.takeWhile (/= '\0') $ decoder bs
             Nothing -> error "getValue: String field had no size"
         getFixedString :: Int -> (BS.ByteString -> Text) -> Get (Maybe Text)
         getFixedString = getFixedStringWithSize $ field ^. fieldSize
