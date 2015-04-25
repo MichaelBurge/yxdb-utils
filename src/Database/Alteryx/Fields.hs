@@ -108,13 +108,12 @@ putValue field value =
     Just (FVUnknown)         -> error "putUnknown unimplemented"
     Nothing ->
       case field ^. fieldType of
-        FTInt16 -> do
-          putWord16le 0
-          putWord8 1
-        FTDouble -> do
-          put (0 :: CDouble)
-          putWord8 1
-
+        FTByte  -> putWord8 0 >> putWord8 1
+        FTInt16 -> putWord16le 0 >> putWord8 1
+        FTInt32 -> putWord32le 0 >> putWord8 1
+        FTInt64 -> putWord64le 0 >> putWord8 1
+        FTFloat -> put (0 :: CFloat) >> putWord8 1
+        FTDouble -> put (0 :: CDouble) >> putWord8 1
         x -> error $ "putValue unimplemented for null values of type " ++ show x
 
 -- | Retrieves the bytesting representing all variable data for the current record

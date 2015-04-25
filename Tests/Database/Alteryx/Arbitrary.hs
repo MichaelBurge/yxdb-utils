@@ -95,7 +95,12 @@ arbitraryValueMatching :: Field -> Gen (Maybe FieldValue)
 arbitraryValueMatching field =
   let value =
         case field ^. fieldType of
+          FTBool -> FVBool <$> arbitrary
+          FTByte -> FVByte <$> arbitrary
           FTInt16 -> FVInt16 <$> arbitrary
+          FTInt32 -> FVInt32 <$> arbitrary
+          FTInt64 -> FVInt64 <$> arbitrary
+          FTFloat -> FVFloat <$> arbitrary
           FTDouble -> FVDouble <$> arbitrary
   in do
     isNull <- arbitrary
@@ -109,12 +114,12 @@ instance Arbitrary Block where
 instance Arbitrary FieldType where
     arbitrary = elements [
                  -- FTBool,
-                 -- FTByte,
+                 FTByte,
                  FTInt16,
-                 -- FTInt32,
-                 -- FTInt64,
+                 FTInt32,
+                 FTInt64,
                  -- FTFixedDecimal,
-                 -- FTFloat,
+                 FTFloat,
                  FTDouble
                  -- FTString,
                  -- FTWString,
