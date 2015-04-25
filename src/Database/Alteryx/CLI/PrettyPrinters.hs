@@ -23,10 +23,10 @@ printRecordInfo recordInfo =
           <> case field ^. fieldSize of
             Just x -> " - Size: " <> (T.pack $ show x)
             Nothing -> ""
-          <> case field ^. fieldScale of                     
+          <> case field ^. fieldScale of
             Just x -> " - Scale: " <> (T.pack $ show x)
             Nothing -> ""
-         :: Text )                                   
+         :: Text )
   in do
     putStrLn "RecordInfo:"
     mapM_ printField $ NT.unpack recordInfo
