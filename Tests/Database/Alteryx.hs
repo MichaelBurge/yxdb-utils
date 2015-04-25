@@ -231,6 +231,35 @@ test_recordParsing = do
   assertEqual "Parse from YXDB" expectedRecord (yxdbFile ^. yxdbFileRecords)
   assertEqual "New CSV doesn't match old" expectedRecord newRecords
 
+test_signedRecordParsing :: Assertion
+test_signedRecordParsing = do
+  let inputFilename = "test-data/signed.csv"
+      outputFilename = "test-data/signed.yxdb"
+      secondOutputFilename = "test-data/signed.yxdb.csv"
+      expectedRecord =
+          [
+           Record [
+            Just (FVByte $ -1),
+            Just (FVInt16 $ -256),
+            Just (FVInt32 $ -32768),
+            Just (FVInt64 $ -4294967296),
+            Just (FVString "1.10000"),
+            Just (FVFloat $ -1.1),
+            Just (FVDouble $ -1.1)
+           ]
+          ]
+  records <- readCsvRecords Nothing inputFilename
+  assertEqual "Parse from CSV" expectedRecord records
+
+  newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
+  yxdbFile <- decodeFile outputFilename :: IO YxdbFile
+
+  T.writeFile secondOutputFilename newCsv
+  newRecords <- readCsvRecords Nothing secondOutputFilename
+
+  assertEqual "Parse from YXDB" expectedRecord (yxdbFile ^. yxdbFileRecords)
+  assertEqual "New CSV doesn't match old" expectedRecord newRecords
+
 yxdbTests :: Test.Framework.Test
 yxdbTests =
     testGroup "YXDB" [
@@ -248,6 +277,7 @@ yxdbTests =
         testCase "Quotes are not used to escape" test_csv2yxdbQuoteParsing,
         testCase "Can parse ISO style dates" test_csv2yxdbDateFormat,
         testCase "Example CSV parses into correct structures" test_recordParsing,
+        testCase "Example CSV with signed values" test_signedRecordParsing,
         testCase "Rendering a non-ANSI codepoint" test_renderNonAnsiCodepoint,
         testCase "Rendering a non-ANSI codepoint at record level" test_renderNonAnsiCodepointRecord,
         testCase "Rendering a non-ANSI codepoint from CSV to CSV" test_renderNonAnsiCodepointCSVRecord,

@@ -154,10 +154,10 @@ parseCSVField field = do
     Nothing -> return Nothing
     Just _ -> Just <$> case field ^. fieldType of
       FTBool          -> error "parseCSVField: Bool unimplemented"
-      FTByte          -> FVByte <$> decimal
-      FTInt16         -> FVInt16 <$> decimal
-      FTInt32         -> FVInt32 <$> decimal
-      FTInt64         -> FVInt64 <$> decimal
+      FTByte          -> FVByte <$> fromInteger <$> signed decimal
+      FTInt16         -> FVInt16 <$> fromInteger <$> signed decimal
+      FTInt32         -> FVInt32 <$> fromInteger <$> signed decimal
+      FTInt64         -> FVInt64 <$> fromInteger <$> signed decimal
       FTFixedDecimal  -> FVString <$> takeText -- TODO: Wrong!
       FTFloat         -> FVFloat <$> rational
       FTDouble        -> FVDouble <$> rational
