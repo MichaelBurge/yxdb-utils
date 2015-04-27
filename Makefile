@@ -1,7 +1,7 @@
 all: build
 
 build:
-	docker build -t . --tag yxdb-utils
+	docker build --tag=yxdb-utils .
 
 build_test:
 	cabal sandbox init
