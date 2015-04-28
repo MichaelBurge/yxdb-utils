@@ -86,6 +86,9 @@ between left right middle = do
   _ <- right
   return x
 
+keyword :: T.Text -> Parser T.Text
+keyword text = (try $ string text)
+
 parseFieldType :: Parser (Field -> Field)
 parseFieldType =
   let parseParens = between (char '(') (char ')')
@@ -100,52 +103,50 @@ parseFieldType =
         return $ \field -> field & fieldType .~ fType
                                  & fieldSize .~ Just size
   in choice [
-    try $ string "bool"    *> return (& fieldType .~ FTBool),
-    try $ string "int(8)"  *> return (& fieldType .~ FTByte),
-    try $ string "int(16)" *> return (& fieldType .~ FTInt16),
-    try $ string "int(32)" *> return (& fieldType .~ FTInt32),
-    try $ string "int(64)" *> return (& fieldType .~ FTInt64),
-    try $ string "decimal" *> do
+    string "bool"    *> return (& fieldType .~ FTBool),
+    string "int(8)"  *> return (& fieldType .~ FTByte),
+    string "int(16)" *> return (& fieldType .~ FTInt16),
+    string "int(32)" *> return (& fieldType .~ FTInt32),
+    string "int(64)" *> return (& fieldType .~ FTInt64),
+    string "decimal" *> do
       (size, scale) <- parseTwoArgs
       return $ \field -> field & fieldType  .~ FTFixedDecimal
                                & fieldSize  .~ Just size
                                & fieldScale .~ Just scale,
-    try $ string "float"    *> return (& fieldType .~ FTFloat),
-    try $ string "double"   *> return (& fieldType .~ FTDouble),
-    try $ string "string"   *> parseSize FTString,
-    try $ string "wstring"  *> parseSize FTWString,
-    try $ string "vstring"  *> parseSize FTVString,
-    try $ string "vwstring" *> parseSize FTVWString,
-    try $ string "datetime" *> return (& fieldType .~ FTDateTime),
-    try $ string "date"     *> return (& fieldType .~ FTDate),
-    try $ string "time"     *> return (& fieldType .~ FTTime),
-    try $ string "blob"     *> parseSize FTBlob,
-    try $ string "spatial"  *> parseSize FTBlob,
-                               return (& fieldType .~ FTUnknown)
+    string "float"    *> return (& fieldType .~ FTFloat),
+    string "double"   *> return (& fieldType .~ FTDouble),
+    string "string"   *> parseSize FTString,
+    string "wstring"  *> parseSize FTWString,
+    string "vstring"  *> parseSize FTVString,
+    string "vwstring" *> parseSize FTVWString,
+    string "datetime" *> return (& fieldType .~ FTDateTime),
+    string "date"     *> return (& fieldType .~ FTDate),
+    string "time"     *> return (& fieldType .~ FTTime),
+    string "blob"     *> parseSize FTBlob,
+    string "spatial"  *> parseSize FTBlob
     ]
+  <?> "parseFieldType"
 
 identifier :: Parser T.Text
-identifier = T.pack <$> (many $ satisfy $ inClass "a-zA-Z0-9_")
+identifier = takeWhile1 (inClass "a-zA-Z0-9_")
 
 parseCSVHeaderField :: Parser Field
 parseCSVHeaderField =
   let defaultField = Field {
         _fieldName  = error "No name",
-        _fieldType  = FTUnknown,
+        _fieldType  = error "No type",
         _fieldSize  = Nothing,
         _fieldScale = Nothing
       }
   in do
     name <- identifier
-    applyParameters <- choice [
-      char ':' *> parseFieldType,
-                  return id
-      ]
-    return $ applyParameters $
-             defaultField & fieldName .~ name
+    char ':'
+    setType <- parseFieldType
+    return $ setType $
+           defaultField & fieldName .~ name
 
 parseCSVHeader :: Parser RecordInfo
-parseCSVHeader = RecordInfo <$> (parseCSVHeaderField `sepBy` char '|' )
+parseCSVHeader = (RecordInfo <$> (parseCSVHeaderField `sepBy1'` char '|' )) <* endOfInput
 
 parseCSVField :: Field -> Parser (Maybe FieldValue)
 parseCSVField field = do

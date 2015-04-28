@@ -1,3 +1,3 @@
 #!/bin/sh
 
-sudo docker run -v $PWD:/mnt/pwd -w /mnt/pwd yxdb2csv csv2yxdb "$@"
+sudo docker run -v $PWD:/mnt/pwd -w /mnt/pwd yxdb-utils csv2yxdb "$@"

@@ -47,7 +47,8 @@ executable csv2yxdb
   build-depends:
     base == 4.*,
     yxdb-utils
-  ghc-options: -threaded -auto-all -rtsopts
+  ghc-options: -threaded -auto-all -rtsopts -static
+  ld-options: -static -pthread
 
 executable yxdb2csv
   hs-source-dirs: bin-src
@@ -55,7 +56,8 @@ executable yxdb2csv
   build-depends:
     base == 4.*,
     yxdb-utils
-  ghc-options: -threaded -auto-all -rtsopts
+  ghc-options: -threaded -auto-all -rtsopts -static
+  ld-options: -static -pthread
 
 library
   ghc-options: -O2
