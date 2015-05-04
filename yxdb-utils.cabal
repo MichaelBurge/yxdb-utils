@@ -48,7 +48,7 @@ executable csv2yxdb
     base == 4.*,
     yxdb-utils
   ghc-options: -threaded -auto-all -rtsopts -static
-  ld-options: -static -pthread
+  ld-options: -Wl,-Bdynamic -lc -static -pthread
 
 executable yxdb2csv
   hs-source-dirs: bin-src
@@ -57,7 +57,7 @@ executable yxdb2csv
     base == 4.*,
     yxdb-utils
   ghc-options: -threaded -auto-all -rtsopts -static
-  ld-options: -static -pthread
+  ld-options: -Wl,-Bdynamic -lc -static -pthread
 
 library
   ghc-options: -O2
@@ -99,6 +99,7 @@ library
     mtl,
     newtype,
     old-locale,
+    parsec,
     primitive,
     reinterpret-cast,
     resourcet,
@@ -138,6 +139,7 @@ test-suite yxdb-tests
     mtl,
     newtype,
     old-locale,
+    parsec,
     primitive,
     quickcheck-instances,
     reinterpret-cast,
