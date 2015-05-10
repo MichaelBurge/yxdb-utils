@@ -10,7 +10,7 @@ name:                yxdb-utils
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:             0.1.0.0
+version:             0.1.0.1
 
 -- A short (one-line) description of the package.
 synopsis:            Utilities for reading and writing Alteryx .yxdb files
@@ -40,6 +40,10 @@ build-type:          Simple
 
 -- Constraint on the version of Cabal needed to build this package.
 cabal-version:       >=1.8
+
+extra-source-files:
+  test-data/*.csv
+  test-data/*.yxdb
 
 executable csv2yxdb
   hs-source-dirs: bin-src
@@ -108,6 +112,13 @@ library
 test-suite yxdb-tests
   ghc-options: -O2 -fprof-auto
   hs-source-dirs: src, .
+  other-modules:
+    Tests.Codec.Compression.LZF.ByteString
+    Tests.Data.Binary.C
+    Tests.Database.Alteryx
+    Tests.Database.Alteryx.Arbitrary
+    Tests.Database.Utils
+    Tests.Main
   type: exitcode-stdio-1.0
   build-depends:
     Codec-Compression-LZF,
@@ -152,7 +163,6 @@ test-suite yxdb-tests
   buildable: True
   hs-source-dirs: src
   ghc-options: -rtsopts -with-rtsopts=-M512m
-
 source-repository head
   type: git
   location: https://github.com/MichaelBurge/yxdb-utils

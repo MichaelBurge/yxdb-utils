@@ -38,9 +38,6 @@ import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.HUnit
 import Test.QuickCheck
 
-exampleFilename :: String
-exampleFilename = "samples_of_various_field_types.yxdb"
-
 assertEq :: (Eq a, Show a) => a -> a -> Property
 assertEq a b = let
     aStr = show a
@@ -84,7 +81,7 @@ prop_YxdbFileGetAndPutAreInverses x = assertEq (decode $ encode x) x
 
 test_LoadingSmallModule :: Assertion
 test_LoadingSmallModule = do
-  parsed <- decodeFileOrFail exampleFilename
+  parsed <- decodeFileOrFail "test-data/samples_of_various_field_types.yxdb"
   case parsed of
     Left (bytes, msg) -> assertFailure (msg ++ " at " ++ show bytes ++ " bytes")
     Right yxdbFile -> const (return ()) (yxdbFile :: YxdbFile)

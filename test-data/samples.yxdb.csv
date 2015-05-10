@@ -1,2 +1,0 @@
-f1:int(8)|f2:int(16)|f3:int(32)|f4:int(64)|f5:decimal(7,5)|f6:float|f7:double|f8:string(8)|f9:wstring(2)|f10:string(8)|f11:wstring(2)|f12:date|f13:time|f14:datetime
-1|256|32768|4294967296|1.10000|1.1000|1.1000|plátano|香蕉|plátano|香蕉|2013-12-31|23:34:56|2013-12-31 23:34:56
