@@ -2,7 +2,7 @@
 Utilities for parsing Alteryx Database format
 
 ## Yxdb2Csv.hs
-Usage: yxdb2csv [OPTIONS...] <input_file> [[| <OS utility>] > <output_file>]
+Usage: ```yxdb2csv [OPTIONS...] <input_file>```
 ```
 example 1: yxdb2csv alteryx_db.yxdb > output.psv  # output to pipe-delimited flat file
 example 2: yxdb2csv alteryx_db.yxdb | gzip -f > output_zipped.psv.gz  # pipe to compression tool, forced overwrite
@@ -18,8 +18,9 @@ Options:
 ```
 
 ## Csv2Yxdb.hs
-Output data in flat pipe-delimited format (UTF-8 encoded)
-Usage: csv2yxdb my_flat_file.psv -o my_alteryx_db.yxdb
+Input data in flat pipe-delimited format (UTF-8 encoded)
+
+Usage: ```csv2yxdb my_flat_file.psv -o my_alteryx_db.yxdb```
 
 ```
 example: csv2yxdb input.csv -o example.yxdb  # input a pipe-delimited flat file (not comma-delimited)
