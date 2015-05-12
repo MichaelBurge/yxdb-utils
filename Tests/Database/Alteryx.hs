@@ -31,6 +31,8 @@ import qualified Data.CSV.Conduit as CSVT
 import Data.Text as T
 import Data.Text.Encoding as T
 import Data.Text.IO as T
+import System.IO.Temp
+import System.Process
 
 import Test.Framework
 import Test.Framework.Providers.HUnit (testCase)
@@ -43,6 +45,18 @@ assertEq a b = let
     aStr = show a
     bStr = show b
     in printTestCase ("\nA: " ++ aStr ++ "\nB: " ++ bStr) (a == b)
+
+assertDiffEqual :: T.Text -> T.Text -> Assertion
+assertDiffEqual a b =
+  if a == b
+  then return ()
+  else withSystemTempDirectory "x" $ \directory -> do
+         let filenameA = directory ++ "/a"
+             filenameB = directory ++ "/b"
+         T.writeFile filenameA a
+         T.writeFile filenameB b
+         (code, diffOutput, diffError) <- readProcessWithExitCode "diff" [filenameA, filenameB] ""
+         assertFailure $ "Diff failed: " ++ diffOutput
 
 numBytes :: Binary a => a -> Int
 numBytes x = fromIntegral $ BSL.length $ runPut $ put x
@@ -257,6 +271,14 @@ test_signedRecordParsing = do
   assertEqual "Parse from YXDB" expectedRecord (yxdbFile ^. yxdbFileRecords)
   assertEqual "New CSV doesn't match old" expectedRecord newRecords
 
+test_multipleBlocks :: Assertion
+test_multipleBlocks = do
+  let inputFilename = "test-data/multiple-blocks.csv"
+      outputFilename = "test-data/multiple-blocks.yxdb"
+  oldCsv <- T.readFile inputFilename
+  newCsv <- csv2yxdb2csv C2Y.defaultSettings inputFilename outputFilename
+  assertDiffEqual oldCsv newCsv
+
 yxdbTests :: Test.Framework.Test
 yxdbTests =
     testGroup "YXDB" [
@@ -278,5 +300,6 @@ yxdbTests =
         testCase "Rendering a non-ANSI codepoint" test_renderNonAnsiCodepoint,
         testCase "Rendering a non-ANSI codepoint at record level" test_renderNonAnsiCodepointRecord,
         testCase "Rendering a non-ANSI codepoint from CSV to CSV" test_renderNonAnsiCodepointCSVRecord,
-        testCase "Rendering a non-ANSI codepoint from CSV to YXDB blocks to CSV" test_renderNonAnsiCodepointCSV2Record2Block2Record2CSV
+        testCase "Rendering a non-ANSI codepoint from CSV to YXDB blocks to CSV" test_renderNonAnsiCodepointCSV2Record2Block2Record2CSV,
+        testCase "Multiple blocks" test_multipleBlocks
     ]

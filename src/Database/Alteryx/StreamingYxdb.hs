@@ -108,8 +108,7 @@ type StatefulConduit a m b = Conduit a (State.StateT StreamingCSVStatistics m) b
 
 recordsToBlocks :: (MonadThrow m) => RecordInfo -> StatefulConduit Record m Block
 recordsToBlocks recordInfo = do
-  allRecords <- CC.sinkList
-  let records = Prelude.take recordsPerBlock allRecords
+  records <- CC.take recordsPerBlock =$= CC.sinkList
   if Prelude.null records
      then return ()
      else do
