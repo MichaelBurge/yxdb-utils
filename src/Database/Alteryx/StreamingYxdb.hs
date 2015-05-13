@@ -24,8 +24,7 @@ import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
 import Data.ByteString as BS
-import Data.ByteString.Builder as BSB
-import Data.ByteString.Builder.Extra as BSB
+import Blaze.ByteString.Builder as BSB
 import Data.ByteString.Lazy as BSL
 import Data.Conduit
 import Data.Conduit.Binary
@@ -113,12 +112,14 @@ recordsToBlocks recordInfo = do
      then return ()
      else do
        let numRecords = V.length records
+           minimumBlockSize = miniblockThreshold `div` 2
+           builder = mconcat $ V.toList $
+                     V.map (copyLazyByteString . runPut . putRecord recordInfo) records
        lift $ State.modify (& statisticsNumRecords %~ (+numRecords))
-       let buildOneRecord :: Record -> BSB.Builder
-           buildOneRecord record =
-               let recordBSL = runPut $ putRecord recordInfo record
-               in lazyByteStringThreshold miniblockThreshold recordBSL
-       yield $ Block $ toLazyByteString $ mconcat $ V.toList $ V.map buildOneRecord records
+
+       yield $ Block $
+             toLazyByteStringWith miniblockThreshold minimumBlockSize miniblockThreshold builder BSL.empty
+
        recordsToBlocks recordInfo
 
 

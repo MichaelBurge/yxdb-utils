@@ -51,6 +51,7 @@ executable csv2yxdb
   build-depends:
     base == 4.*,
     yxdb-utils
+  ghc-prof-options: -O2 -fprof-auto
 --  ghc-options: -threaded -auto-all -rtsopts -static
 --  ld-options: -Wl,-Bdynamic -lc -static -pthread
 
@@ -60,6 +61,7 @@ executable yxdb2csv
   build-depends:
     base == 4.*,
     yxdb-utils
+  ghc-prof-options: -O2 -fprof-auto
 --  ghc-options: -threaded -auto-all -rtsopts -static
 --  ld-options: -Wl,-Bdynamic -lc -static -pthread
 
@@ -87,6 +89,7 @@ library
     bimap,
     binary >0.7.2,
     binary-conduit,
+    blaze-builder,
     bytestring,
     conduit,
     conduit-combinators,
@@ -95,6 +98,7 @@ library
     csv-conduit,
     Decimal,
     directory,
+    either,
     exceptions,
     ghc-prim,
     lens,
@@ -112,6 +116,7 @@ library
     transformers,
     xml-conduit,
     vector
+  ghc-prof-options: -O2 -fprof-auto
 
 test-suite yxdb-tests
   ghc-options: -O2 -fprof-auto
@@ -135,6 +140,7 @@ test-suite yxdb-tests
     bimap,
     binary,
     binary-conduit,
+    blaze-builder,
     bytestring,
     conduit,
     conduit-combinators,
@@ -142,6 +148,7 @@ test-suite yxdb-tests
     containers,
     csv-conduit,
     directory,
+    either,
     exceptions,
     ghc-prim,
     lens,
@@ -170,6 +177,8 @@ test-suite yxdb-tests
   buildable: True
   hs-source-dirs: src
   ghc-options: -rtsopts -with-rtsopts=-M512m
+  ghc-prof-options: -O2 -fprof-auto
+
 source-repository head
   type: git
   location: https://github.com/MichaelBurge/yxdb-utils

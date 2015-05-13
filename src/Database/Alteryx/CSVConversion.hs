@@ -16,7 +16,7 @@ import Control.Monad
 import Control.Monad.Catch hiding (try)
 import Control.Monad.Trans.Resource
 import qualified Control.Newtype as NT
-import Data.Attoparsec.Text as AT
+import qualified Data.Attoparsec.Text as AT
 import Data.ByteString as BS
 import Data.ByteString.Char8 as BSC
 import Data.Conduit
@@ -25,6 +25,7 @@ import Data.Conduit.Attoparsec as CP
 import Data.Conduit.Combinators as CC
 import Data.Conduit.List as CL hiding (isolate)
 import Data.Conduit.Text as CT
+import Data.Either.Combinators
 import Data.Maybe
 import Data.Monoid
 import qualified Data.CSV.Conduit as CSVT
@@ -34,6 +35,7 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Lazy.Builder.Int as TB
 import qualified Data.Text.Lazy.Builder.RealFloat as TB
+import qualified Data.Text.Read as T
 
 import Database.Alteryx.Serialization()
 import Database.Alteryx.Types
@@ -66,8 +68,8 @@ renderFieldValue :: Maybe FieldValue -> TB.Builder
 renderFieldValue fieldValue =
   -- TODO: Floating point values need to get their size information from the metadata
   case fieldValue of
-    Just (FVFloat f)    -> TB.realFloat f
-    Just (FVDouble f)   -> TB.realFloat f
+    Just (FVFloat f)    -> TB.formatRealFloat TB.Fixed Nothing f
+    Just (FVDouble f)   -> TB.formatRealFloat TB.Fixed Nothing f
     Just (FVByte x)     -> TB.decimal x
     Just (FVInt16 x)    -> TB.decimal x
     Just (FVInt32 x)    -> TB.decimal x
@@ -79,58 +81,58 @@ renderFieldValue fieldValue =
     Nothing           -> TB.fromText ""
     _                 -> error $ "renderFieldValue: Unlisted case: " ++ show fieldValue
 
-between :: Parser a -> Parser a -> Parser b -> Parser b
+between :: AT.Parser a -> AT.Parser a -> AT.Parser b -> AT.Parser b
 between left right middle = do
   _ <- left
   x <- middle
   _ <- right
   return x
 
-keyword :: T.Text -> Parser T.Text
-keyword text = (try $ string text)
+keyword :: T.Text -> AT.Parser T.Text
+keyword text = (AT.try $ AT.string text)
 
-parseFieldType :: Parser (Field -> Field)
+parseFieldType :: AT.Parser (Field -> Field)
 parseFieldType =
-  let parseParens = between (char '(') (char ')')
-      parseOneArg = parseParens decimal
+  let parseParens = between (AT.char '(') (AT.char ')')
+      parseOneArg = parseParens AT.decimal
       parseTwoArgs = parseParens $ do
-        arg1 <- decimal
-        _    <- char ','
-        arg2 <- decimal
+        arg1 <- AT.decimal
+        _    <- AT.char ','
+        arg2 <- AT.decimal
         return (arg1, arg2)
       parseSize fType = do
         size <- fromInteger <$> parseOneArg
         return $ \field -> field & fieldType .~ fType
                                  & fieldSize .~ Just size
-  in choice [
-    string "bool"    *> return (& fieldType .~ FTBool),
-    string "int(8)"  *> return (& fieldType .~ FTByte),
-    string "int(16)" *> return (& fieldType .~ FTInt16),
-    string "int(32)" *> return (& fieldType .~ FTInt32),
-    string "int(64)" *> return (& fieldType .~ FTInt64),
-    string "decimal" *> do
+  in AT.choice [
+    AT.string "bool"    *> return (& fieldType .~ FTBool),
+    AT.string "int(8)"  *> return (& fieldType .~ FTByte),
+    AT.string "int(16)" *> return (& fieldType .~ FTInt16),
+    AT.string "int(32)" *> return (& fieldType .~ FTInt32),
+    AT.string "int(64)" *> return (& fieldType .~ FTInt64),
+    AT.string "decimal" *> do
       (size, scale) <- parseTwoArgs
       return $ \field -> field & fieldType  .~ FTFixedDecimal
                                & fieldSize  .~ Just size
                                & fieldScale .~ Just scale,
-    string "float"    *> return (& fieldType .~ FTFloat),
-    string "double"   *> return (& fieldType .~ FTDouble),
-    string "string"   *> parseSize FTString,
-    string "wstring"  *> parseSize FTWString,
-    string "vstring"  *> parseSize FTVString,
-    string "vwstring" *> parseSize FTVWString,
-    string "datetime" *> return (& fieldType .~ FTDateTime),
-    string "date"     *> return (& fieldType .~ FTDate),
-    string "time"     *> return (& fieldType .~ FTTime),
-    string "blob"     *> parseSize FTBlob,
-    string "spatial"  *> parseSize FTBlob
+    AT.string "float"    *> return (& fieldType .~ FTFloat),
+    AT.string "double"   *> return (& fieldType .~ FTDouble),
+    AT.string "string"   *> parseSize FTString,
+    AT.string "wstring"  *> parseSize FTWString,
+    AT.string "vstring"  *> parseSize FTVString,
+    AT.string "vwstring" *> parseSize FTVWString,
+    AT.string "datetime" *> return (& fieldType .~ FTDateTime),
+    AT.string "date"     *> return (& fieldType .~ FTDate),
+    AT.string "time"     *> return (& fieldType .~ FTTime),
+    AT.string "blob"     *> parseSize FTBlob,
+    AT.string "spatial"  *> parseSize FTBlob
     ]
-  <?> "parseFieldType"
+  AT.<?> "parseFieldType"
 
-identifier :: Parser T.Text
-identifier = takeWhile1 (inClass "a-zA-Z0-9_")
+identifier :: AT.Parser T.Text
+identifier = AT.takeWhile1 (AT.inClass "a-zA-Z0-9_")
 
-parseCSVHeaderField :: Parser Field
+parseCSVHeaderField :: AT.Parser Field
 parseCSVHeaderField =
   let defaultField = Field {
         _fieldName  = error "No name",
@@ -140,70 +142,50 @@ parseCSVHeaderField =
       }
   in do
     name <- identifier
-    char ':'
+    AT.char ':'
     setType <- parseFieldType
     return $ setType $
            defaultField & fieldName .~ name
 
-parseCSVHeader :: Parser RecordInfo
-parseCSVHeader = (RecordInfo <$> (parseCSVHeaderField `sepBy1'` char '|' )) <* endOfInput
+parseCSVHeader :: AT.Parser RecordInfo
+parseCSVHeader = (RecordInfo <$> (parseCSVHeaderField `AT.sepBy1'` AT.char '|' )) <* AT.endOfInput
 
-parseCSVField :: Field -> Parser (Maybe FieldValue)
-parseCSVField field = do
-  c <- peekChar
-  case c of
-    Nothing -> return Nothing
-    Just _ -> Just <$> case field ^. fieldType of
-      FTBool          -> error "parseCSVField: Bool unimplemented"
-      FTByte          -> FVByte <$> fromInteger <$> signed decimal
-      FTInt16         -> FVInt16 <$> fromInteger <$> signed decimal
-      FTInt32         -> FVInt32 <$> fromInteger <$> signed decimal
-      FTInt64         -> FVInt64 <$> fromInteger <$> signed decimal
-      FTFixedDecimal  -> FVString <$> takeText -- TODO: Wrong!
-      FTFloat         -> FVFloat <$> rational
-      FTDouble        -> FVDouble <$> rational
-      FTString        -> FVString <$> takeText
-      FTWString       -> FVWString <$> takeText
-      FTVString       -> FVVString <$> takeText
-      FTVWString      -> FVVWString <$> takeText
-      FTDate          -> FVString <$> takeText -- TODO: Wrong!
-      FTTime          -> FVString <$> takeText -- TODO: Wrong!
-      FTDateTime      -> FVString <$> takeText -- TODO: Wrong!
-      FTBlob          -> error "parseCSVField: Blob unimplemented"
-      FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
-      FTUnknown       -> error "parseCSVField: Unknown unimplemented"
+parseCSVField :: Field -> T.Text -> Maybe FieldValue
+parseCSVField field text = do
+  if T.null text
+     then Nothing
+     else Just $ case field ^. fieldType of
+       FTBool          -> error "parseCSVField: Bool unimplemented"
+       FTByte          -> FVByte $ fst $ fromRight' $ T.signed T.decimal $ text
+       FTInt16         -> FVInt16 $ fst $ fromRight' $ T.signed T.decimal $ text
+       FTInt32         -> FVInt32 $ fst $ fromRight' $ T.signed T.decimal $ text
+       FTInt64         -> FVInt64 $ fst $ fromRight' $ T.signed T.decimal $ text
+       FTFixedDecimal  -> FVString text
+       FTFloat         -> FVFloat $ fst $ fromRight' $ T.rational text
+       FTDouble        -> FVDouble $ fst $ fromRight' $ T.rational text
+       FTString        -> FVString text
+       FTWString       -> FVWString text
+       FTVString       -> FVVString text
+       FTVWString      -> FVVWString text
+       FTDate          -> FVString text
+       FTTime          -> FVString text
+       FTDateTime      -> FVString text
+       FTBlob          -> error "parseCSVField: Blob unimplemented"
+       FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
+       FTUnknown       -> error "parseCSVField: Unknown unimplemented"
 
 csvRow2Record :: RecordInfo -> [T.Text] -> Record
-csvRow2Record (RecordInfo fields) columns =
-  let eFieldValues =
-          zipWithM (\field column -> parseOnly (parseCSVField field) column)
-                   fields
-                   columns
-  in case eFieldValues of
-       Left e -> error e
-       Right fieldValues -> Record fieldValues
+csvRow2Record (RecordInfo fields) columns = Record $ Prelude.zipWith parseCSVField fields columns
 
-csvHunks2Records :: (MonadThrow m) => RecordInfo -> Conduit [T.Text] m Record
-csvHunks2Records recordInfo@(RecordInfo fields) =
-    let numFields = Prelude.length fields
-    in do
-      mRow <- await
-      case mRow of
-        Nothing -> return ()
-        Just [] -> return ()
-        Just columns -> do
-          yield $ csvRow2Record recordInfo columns
-          csvHunks2Records recordInfo
-
-csv2csvHunks :: (MonadThrow m) => Conduit T.Text m [T.Text]
-csv2csvHunks = do
+csv2csvRecords :: (MonadThrow m) => RecordInfo -> Conduit T.Text m Record
+csv2csvRecords recordInfo = do
   mLine <- await
   case mLine of
     Nothing -> return ()
     Just line -> do
       let columns = T.splitOn "|" line
-      yield columns
-      csv2csvHunks
+      yield $ csvRow2Record recordInfo columns
+      csv2csvRecords recordInfo
 
 csv2records :: (MonadThrow m) => CSVT.CSVSettings -> Conduit T.Text m Record
 csv2records csvSettings = CT.lines =$= do
@@ -211,13 +193,10 @@ csv2records csvSettings = CT.lines =$= do
   case mHeader of
     Nothing -> return ()
     Just header -> do
-      let eRecordInfo = parseOnly parseCSVHeader header
+      let eRecordInfo = AT.parseOnly parseCSVHeader header
       case eRecordInfo of
         Left e -> error e
-        Right recordInfo ->
-          csv2csvHunks =$=
-          csvHunks2Records recordInfo
-
+        Right recordInfo -> csv2csvRecords recordInfo
 
 prependHeader :: (MonadResource m) => T.Text -> Conduit T.Text m T.Text
 prependHeader header = do
