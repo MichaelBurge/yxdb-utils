@@ -122,28 +122,6 @@ recordsToBlocks recordInfo = do
 
        recordsToBlocks recordInfo
 
-
-blocksToYxdbBytes :: (MonadThrow m) => RecordInfo -> StatefulConduit Block m BS.ByteString
-blocksToYxdbBytes recordInfo = do
-  -- We fill the header with padding since we don't know enough to fill it in yet
-  let headerBS = BS.replicate headerPageSize 0
-  yield headerBS
-  let metadataBS = BSL.toStrict $ runPut (put recordInfo)
-  lift $ State.modify (& statisticsMetadataLength .~ BS.length metadataBS)
-  yield metadataBS
-  let putBlockWithIndex :: (MonadThrow m) => StatefulConduit Block m BS.ByteString
-      putBlockWithIndex = do
-        mBlock <- await
-        case mBlock of
-          Nothing -> return ()
-          Just block -> do
-            let bs = BSL.toStrict $ runPut $ put block
-                bsLen = BS.length bs
-            lift $ State.modify (& statisticsBlockLengths %~ (bsLen:))
-            yield bs
-            putBlockWithIndex
-  putBlockWithIndex
-
 computeHeaderFromStatistics :: StreamingCSVStatistics -> IO Header
 computeHeaderFromStatistics statistics = do
     currentTime <- getCurrentTime
@@ -186,9 +164,25 @@ computeBlockIndexFromStatistics statistics =
 toBS :: Binary a => a -> BS.ByteString
 toBS = BSL.toStrict . runPut . put
 
-sinkYxdbBytes :: (MonadThrow m, MonadIO m) => Handle -> Sink BS.ByteString (State.StateT StreamingCSVStatistics m) ()
-sinkYxdbBytes handle = do
-  CC.sinkHandle handle
+sinkYxdbBlocks :: (MonadThrow m, MonadIO m) => Handle -> RecordInfo -> Sink Block (State.StateT StreamingCSVStatistics m) ()
+sinkYxdbBlocks handle recordInfo = do
+  liftIO $ BS.hPut handle $ BS.replicate headerPageSize 0
+  let metadataBS = BSL.toStrict $ runPut (put recordInfo)
+  liftIO $ BS.hPut handle metadataBS
+  lift $ State.modify (& statisticsMetadataLength .~ BS.length metadataBS)
+  let sinkOnlyBlocks = do
+        mBlock <- await
+        case mBlock of
+          Nothing -> return ()
+          Just block ->
+              let bs = toByteString $ buildBlock block
+                  bsLen = BS.length bs
+              in do
+                lift $ State.modify (& statisticsBlockLengths %~ (bsLen:))
+                liftIO $ BS.hPut handle bs
+                sinkOnlyBlocks
+
+  sinkOnlyBlocks
   statistics <- lift State.get
   header <- liftIO $ computeHeaderFromStatistics statistics
   let blockIndex   = computeBlockIndexFromStatistics statistics
@@ -204,5 +198,4 @@ sinkRecords :: (MonadThrow m, MonadIO m, MonadResource m) => Handle -> RecordInf
 sinkRecords handle recordInfo =
     evalStateC defaultStatistics $
       recordsToBlocks recordInfo =$=
-      blocksToYxdbBytes recordInfo =$
-      sinkYxdbBytes handle
+      sinkYxdbBlocks handle recordInfo

@@ -3,6 +3,7 @@
 
 module Database.Alteryx.Serialization
     (
+      buildBlock,
       buildRecord,
       dbFileId,
       getRecord,
@@ -286,10 +287,13 @@ instance Binary Block where
        BSL.fromChunks <$>
        Prelude.map NT.unpack <$>
        unfoldM tryGetOne
-  put (Block bs) =
+  put block = putByteString $ toByteString $ buildBlock block
+
+buildBlock :: Block -> Builder
+buildBlock (Block bs) =
     case BSL.toChunks bs of
-      [] -> put $ Miniblock $ BS.empty
-      xs -> mapM_ (put . Miniblock) xs
+      [] -> buildMiniblock $ Miniblock $ BS.empty
+      xs -> mconcat $ Prelude.map (buildMiniblock . Miniblock) xs
 
 instance Binary Miniblock where
   get = do
@@ -305,18 +309,24 @@ instance Binary Miniblock where
                   Just x -> return $ x
                 else return bs
     Miniblock <$> chunk
-  put (Miniblock bs) = do
+  put miniblock = putByteString $ toByteString $ buildMiniblock miniblock
+
+
+buildMiniblock :: Miniblock -> Builder
+buildMiniblock (Miniblock bs) =
     let compressionBitIndex = 31
-    let compressedBlock = compressByteStringFixed ((BS.length bs)-1) bs
-    let blockToWrite = case compressedBlock of
+        compressedBlock = compressByteStringFixed ((BS.length bs)-1) bs
+        blockToWrite = case compressedBlock of
           Nothing -> bs
           Just x  -> x
-    let size = BS.length blockToWrite
-    let writtenSize = if isJust compressedBlock
+        size = BS.length blockToWrite
+        writtenSize = if isJust compressedBlock
                       then size
                       else setBit size compressionBitIndex
-    putWord32le $ fromIntegral writtenSize
-    putByteString blockToWrite
+    in mconcat [
+            fromWord32le $ fromIntegral writtenSize,
+            fromByteString blockToWrite
+           ]
 
 instance Binary Header where
     put header = do

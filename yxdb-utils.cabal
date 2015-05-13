@@ -116,6 +116,7 @@ library
     transformers,
     xml-conduit,
     vector
+  ghc-options: -funbox-strict-fields
   ghc-prof-options: -O2 -fprof-auto
 
 test-suite yxdb-tests

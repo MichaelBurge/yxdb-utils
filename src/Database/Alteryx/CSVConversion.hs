@@ -174,8 +174,10 @@ parseCSVField field text = do
        FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
        FTUnknown       -> error "parseCSVField: Unknown unimplemented"
 
-csvRow2Record :: RecordInfo -> [T.Text] -> Record
-csvRow2Record (RecordInfo fields) columns = Record $ Prelude.zipWith parseCSVField fields columns
+csvRow2Record :: RecordInfo -> T.Text -> Record
+csvRow2Record (RecordInfo fields) columns =
+    Record $ Prelude.zipWith parseCSVField fields
+           $ T.splitOn "|" columns
 
 csv2csvRecords :: (MonadThrow m) => RecordInfo -> Conduit T.Text m Record
 csv2csvRecords recordInfo = do
@@ -183,8 +185,7 @@ csv2csvRecords recordInfo = do
   case mLine of
     Nothing -> return ()
     Just line -> do
-      let columns = T.splitOn "|" line
-      yield $ csvRow2Record recordInfo columns
+      yield $ csvRow2Record recordInfo line
       csv2csvRecords recordInfo
 
 csv2records :: (MonadThrow m) => CSVT.CSVSettings -> Conduit T.Text m Record
