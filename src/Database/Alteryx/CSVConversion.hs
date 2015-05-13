@@ -66,8 +66,8 @@ renderFieldValue :: Maybe FieldValue -> TB.Builder
 renderFieldValue fieldValue =
   -- TODO: Floating point values need to get their size information from the metadata
   case fieldValue of
-    Just (FVFloat f)    -> TB.formatRealFloat TB.Fixed (Just 4) f
-    Just (FVDouble f)   -> TB.formatRealFloat TB.Fixed (Just 4) f
+    Just (FVFloat f)    -> TB.realFloat f
+    Just (FVDouble f)   -> TB.realFloat f
     Just (FVByte x)     -> TB.decimal x
     Just (FVInt16 x)    -> TB.decimal x
     Just (FVInt32 x)    -> TB.decimal x
@@ -173,8 +173,18 @@ parseCSVField field = do
       FTSpatialObject -> error "parseCSVField: Spatial Object unimplemented"
       FTUnknown       -> error "parseCSVField: Unknown unimplemented"
 
-csvHunks2records :: (MonadThrow m) => RecordInfo -> Conduit [T.Text] m Record
-csvHunks2records recordInfo@(RecordInfo fields) =
+csvRow2Record :: RecordInfo -> [T.Text] -> Record
+csvRow2Record (RecordInfo fields) columns =
+  let eFieldValues =
+          zipWithM (\field column -> parseOnly (parseCSVField field) column)
+                   fields
+                   columns
+  in case eFieldValues of
+       Left e -> error e
+       Right fieldValues -> Record fieldValues
+
+csvHunks2Records :: (MonadThrow m) => RecordInfo -> Conduit [T.Text] m Record
+csvHunks2Records recordInfo@(RecordInfo fields) =
     let numFields = Prelude.length fields
     in do
       mRow <- await
@@ -182,22 +192,18 @@ csvHunks2records recordInfo@(RecordInfo fields) =
         Nothing -> return ()
         Just [] -> return ()
         Just columns -> do
-            let eFieldValues =
-                    zipWithM (\field column -> parseOnly (parseCSVField field) column)
-                             fields
-                             columns
-            case eFieldValues of
-              Left e -> fail e
-              Right fieldValues -> do
-                  yield $ Record fieldValues
-                  csvHunks2records recordInfo
+          yield $ csvRow2Record recordInfo columns
+          csvHunks2Records recordInfo
 
-csv2csvHunks :: (MonadThrow m) => CSVT.CSVSettings -> Conduit T.Text m [T.Text]
-csv2csvHunks csvSettings =
-    CL.map (\x -> T.snoc x '\n') =$=
-    CP.conduitParser (CSVT.row csvSettings) =$=
-    CL.map snd =$=
-    CL.catMaybes
+csv2csvHunks :: (MonadThrow m) => Conduit T.Text m [T.Text]
+csv2csvHunks = do
+  mLine <- await
+  case mLine of
+    Nothing -> return ()
+    Just line -> do
+      let columns = T.splitOn "|" line
+      yield columns
+      csv2csvHunks
 
 csv2records :: (MonadThrow m) => CSVT.CSVSettings -> Conduit T.Text m Record
 csv2records csvSettings = CT.lines =$= do
@@ -209,8 +215,8 @@ csv2records csvSettings = CT.lines =$= do
       case eRecordInfo of
         Left e -> error e
         Right recordInfo ->
-          csv2csvHunks csvSettings =$=
-          csvHunks2records recordInfo
+          csv2csvHunks =$=
+          csvHunks2Records recordInfo
 
 
 prependHeader :: (MonadResource m) => T.Text -> Conduit T.Text m T.Text

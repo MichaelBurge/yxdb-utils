@@ -35,7 +35,7 @@ import Data.Monoid
 import Data.Text as T
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
-import Data.Vector as V (toList)
+import qualified Data.Vector as V
 import System.IO
 
 import Database.Alteryx.Serialization
@@ -106,19 +106,19 @@ blocksToDecompressedBytes = CC.concatMap (BSL.toChunks . NT.unpack)
 
 type StatefulConduit a m b = Conduit a (State.StateT StreamingCSVStatistics m) b
 
-recordsToBlocks :: (MonadThrow m) => RecordInfo -> StatefulConduit Record m Block
+recordsToBlocks :: (MonadThrow m, MonadResource m) => RecordInfo -> StatefulConduit Record m Block
 recordsToBlocks recordInfo = do
-  records <- CC.take recordsPerBlock =$= CC.sinkList
-  if Prelude.null records
+  records <- CC.sinkVectorN recordsPerBlock
+  if V.null records
      then return ()
      else do
-       let numRecords = Prelude.length records
+       let numRecords = V.length records
        lift $ State.modify (& statisticsNumRecords %~ (+numRecords))
        let buildOneRecord :: Record -> BSB.Builder
            buildOneRecord record =
                let recordBSL = runPut $ putRecord recordInfo record
                in lazyByteStringThreshold miniblockThreshold recordBSL
-       yield $ Block $ toLazyByteString $ mconcat $ Prelude.map buildOneRecord records
+       yield $ Block $ toLazyByteString $ mconcat $ V.toList $ V.map buildOneRecord records
        recordsToBlocks recordInfo
 
 
@@ -199,7 +199,7 @@ sinkYxdbBytes handle = do
     hSeek handle SeekFromEnd 0
     BS.hPut handle blockIndexBS
 
-sinkRecords :: (MonadThrow m, MonadIO m) => Handle -> RecordInfo -> Sink Record m ()
+sinkRecords :: (MonadThrow m, MonadIO m, MonadResource m) => Handle -> RecordInfo -> Sink Record m ()
 sinkRecords handle recordInfo =
     evalStateLC defaultStatistics $
       recordsToBlocks recordInfo =$=

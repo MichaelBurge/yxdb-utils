@@ -13,8 +13,11 @@ import Data.Array.IArray
 import Data.Binary
 import Data.Binary.Put
 import Data.ByteString as BS
+import Data.ByteString.Builder as BSB
 import Data.ByteString.Lazy as BSL
+import Data.List.Split
 import Data.Maybe
+import Data.Monoid
 import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Time.Clock.POSIX
@@ -41,8 +44,9 @@ instance Arbitrary YxdbFile where
 arbitraryBlocksMatching :: RecordInfo -> Gen [Block]
 arbitraryBlocksMatching recordInfo = do
   records <- arbitraryRecordsMatching recordInfo
-  let blocks = fromJust $ yieldMany records $= CL.evalStateLC defaultStatistics (recordsToBlocks recordInfo) $$ sinkList
-  return blocks
+  let chunks = chunksOf recordsPerBlock records
+  let mkBlock chunk = Block $ runPut $ mapM_ (putRecord recordInfo) records
+  return $ Prelude.map mkBlock chunks
 
 arbitraryHeaderMatching :: RecordInfo -> [Block] -> Gen Header
 arbitraryHeaderMatching metadata blocks = do

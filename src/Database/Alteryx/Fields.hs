@@ -116,6 +116,9 @@ putValue field value =
         FTDouble -> put (0 :: CDouble) >> putWord8 1
         x -> error $ "putValue unimplemented for null values of type " ++ show x
 
+putRecord :: RecordInfo -> Record -> Put
+putRecord (RecordInfo fields) (Record values) = zipWithM_ putValue fields values
+
 -- | Retrieves the bytesting representing all variable data for the current record
 getAllVariableData :: Get BS.ByteString
 getAllVariableData = do

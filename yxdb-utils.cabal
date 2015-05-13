@@ -155,6 +155,7 @@ test-suite yxdb-tests
     quickcheck-instances,
     reinterpret-cast,
     resourcet,
+    split,
     temporary,
     test-framework,
     test-framework-hunit,
