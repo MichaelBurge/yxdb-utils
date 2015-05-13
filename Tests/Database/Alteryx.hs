@@ -196,7 +196,7 @@ test_renderNonAnsiCodepointCSV2Record2Block2Record2CSV =
       recordInfo = RecordInfo [ nonAnsiCodepointField ]
       csv2csvConduit =
           csv2records alteryxCsvSettings =$=
-          evalStateLC defaultStatistics (recordsToBlocks recordInfo) =$=
+          evalStateC defaultStatistics (recordsToBlocks recordInfo) =$=
           blocksToRecords recordInfo =$=
           record2csv recordInfo =$=
           csv2bytes =$=

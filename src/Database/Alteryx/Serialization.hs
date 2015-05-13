@@ -3,6 +3,7 @@
 
 module Database.Alteryx.Serialization
     (
+      buildRecord,
       dbFileId,
       getRecord,
       getValue,
@@ -22,6 +23,7 @@ module Database.Alteryx.Serialization
 import Database.Alteryx.Fields
 import Database.Alteryx.Types
 
+import Blaze.ByteString.Builder
 import Codec.Compression.LZF.ByteString (decompressByteStringFixed, compressByteStringFixed)
 import qualified Control.Newtype as NT
 import Control.Applicative
@@ -41,6 +43,7 @@ import Data.Conduit.List (sourceList)
 import Data.Conduit.Lazy (lazyConsume)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, listToMaybe)
+import Data.Monoid
 import Data.Text as T
 import Data.Text.Encoding
 import qualified Data.Text.Lazy as TL
@@ -241,10 +244,13 @@ hasVariableData (RecordInfo recordInfo) =
 
 -- | Writes a record using the provided metadata.
 putRecord :: RecordInfo -> Record -> Put
-putRecord recordInfo@(RecordInfo fields) (Record fieldValues) = do
-  zipWithM_ putValue fields fieldValues
-  when (hasVariableData recordInfo) $ do
-    error "putRecord: Variable data unimplemented"
+putRecord recordInfo record = putByteString $ toByteString $ buildRecord recordInfo record
+
+buildRecord :: RecordInfo -> Record -> Builder
+buildRecord recordInfo@(RecordInfo fields) (Record fieldValues) =
+    if hasVariableData recordInfo
+    then error "putRecord: Variable data unimplemented"
+    else mconcat $ Prelude.zipWith buildValue fields fieldValues
 
 -- | Records consists of a fixed amount of data for each field, and also a possibly large amoutn of variable data at the end.
 getRecord :: RecordInfo -> Get Record

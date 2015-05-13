@@ -2,6 +2,7 @@
 
 module Database.Alteryx.Fields
        (
+         buildValue,
          getValue,
          getAllVariableData,
          parseFieldType,
@@ -9,6 +10,8 @@ module Database.Alteryx.Fields
          renderFieldType
        ) where
 
+import Blaze.ByteString.Builder
+import Blaze.ByteString.Builder.ByteString
 import Control.Applicative
 import Control.Lens
 import Control.Monad
@@ -23,6 +26,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
 import Data.Int
+import Data.Monoid
+import Data.ReinterpretCast (floatToWord, wordToFloat, doubleToWord, wordToDouble)
 import Data.Text as T
 import Data.Text.Encoding
 import Data.Time
@@ -55,16 +60,22 @@ fieldTypeMap =
     ]
 
 putValue :: Field -> Maybe FieldValue -> Put
-putValue field value =
-  let putFixedString :: Maybe Int -> Int -> T.Text -> (T.Text -> BS.ByteString) -> Put
-      putFixedString size bytesPerCharacter text encoder = do
+putValue field value = putByteString $ toByteString $ buildValue field value
+
+buildValue :: Field -> Maybe FieldValue -> Builder
+buildValue field value =
+  let buildFixedString :: Maybe Int -> Int -> T.Text -> (T.Text -> BS.ByteString) -> Builder
+      buildFixedString size bytesPerCharacter text encoder =
         let stringBS = encoder text
-        let numPaddingBytes = case size of
-                                Nothing -> error "putValue: No size given for string value"
-                                Just x  -> bytesPerCharacter * x - BS.length stringBS
-        putByteString stringBS
-        replicateM_ numPaddingBytes $ putWord8 0
-        putWord8 0
+            numPaddingBytes =
+                case size of
+                  Nothing -> error "builderValue: No size given for string value"
+                  Just x  -> bytesPerCharacter * x - BS.length stringBS
+            totalZeroBytes = numPaddingBytes + 1 -- For the null at the end
+        in mconcat [
+             copyByteString stringBS,
+             copyByteString $ BS.replicate totalZeroBytes 0
+           ]
       size = field ^. fieldSize
       fType = field ^. fieldType
       encodeLatin1 :: T.Text -> BS.ByteString
@@ -72,52 +83,56 @@ putValue field value =
   in do
   case value of
     Just (FVBool x)          -> error "putBool unimplemented"
-    Just (FVByte x)          -> do
-      putWord8 $ fromIntegral x
-      putWord8 0
-    Just (FVInt16 x)         -> do
-      putWord16le $ fromIntegral x
-      putWord8 0
-    Just (FVInt32 x)         -> do
-      putWord32le $ fromIntegral x
-      putWord8 0
-    Just (FVInt64 x)         -> do
-      putWord64le $ fromIntegral x
-      putWord8 0
+    Just (FVByte x)          -> fromWord8s [ fromIntegral x, 0 ]
+    Just (FVInt16 x)         -> mconcat [
+                                 fromWord16le $ fromIntegral x,
+                                 fromWord8 0
+                                ]
+    Just (FVInt32 x)         -> mconcat [
+                                 fromWord32le $ fromIntegral x,
+                                 fromWord8 0
+                                ]
+    Just (FVInt64 x)         -> mconcat [
+                                 fromWord64le $ fromIntegral x,
+                                 fromWord8 0
+                                ]
     Just (FVFixedDecimal x)  -> error "putFixedDecimal unimplemented"
-    Just (FVFloat x)         -> do
-      let y = realToFrac x :: CFloat
-      put y
-      putWord8 0
-    Just (FVDouble x)        -> do
-      let y = realToFrac x :: CDouble
-      put y
-      putWord8 0
-    Just (FVString x) | fType == FTDate     -> putFixedString (Just 10) 1 x encodeUtf8
-    Just (FVString x) | fType == FTTime     -> putFixedString (Just 8)  1 x encodeUtf8
-    Just (FVString x) | fType == FTDateTime -> putFixedString (Just 19) 1 x encodeUtf8
-    Just (FVString x)        -> putFixedString size 1 x encodeLatin1
-    Just (FVWString x)       -> putFixedString size 2 x encodeUtf16LE
-    Just (FVVString x)       -> error "putVString unimplemented"
-    Just (FVVWString x)      -> error "putVWString unimplemented"
-    Just (FVDate x)          -> error "putDate unimplemented"
-    Just (FVTime x)          -> error "putTime unimplemented"
-    Just (FVDateTime x)      -> error "putDateTime unimplemented"
-    Just (FVBlob x)          -> error "putBlob unimplemented"
-    Just (FVSpatialObject x) -> error "putSpatialObject unimplemented"
-    Just (FVUnknown)         -> error "putUnknown unimplemented"
+    Just (FVFloat x)         -> mconcat [
+                                 fromWord32le $ floatToWord x,
+                                 fromWord8 0
+                                ]
+    Just (FVDouble x)        -> mconcat [
+                                 fromWord64le $ doubleToWord x,
+                                 fromWord8 0
+                                ]
+    Just (FVString x) | fType == FTDate     -> buildFixedString (Just 10) 1 x encodeUtf8
+    Just (FVString x) | fType == FTTime     -> buildFixedString (Just 8)  1 x encodeUtf8
+    Just (FVString x) | fType == FTDateTime -> buildFixedString (Just 19) 1 x encodeUtf8
+    Just (FVString x)        -> buildFixedString size 1 x encodeLatin1
+    Just (FVWString x)       -> buildFixedString size 2 x encodeUtf16LE
+    Just (FVVString x)       -> error "buildVString unimplemented"
+    Just (FVVWString x)      -> error "buildVWString unimplemented"
+    Just (FVDate x)          -> error "buildDate unimplemented"
+    Just (FVTime x)          -> error "buildTime unimplemented"
+    Just (FVDateTime x)      -> error "buildDateTime unimplemented"
+    Just (FVBlob x)          -> error "buildBlob unimplemented"
+    Just (FVSpatialObject x) -> error "buildSpatialObject unimplemented"
+    Just (FVUnknown)         -> error "buildUnknown unimplemented"
     Nothing ->
       case field ^. fieldType of
-        FTByte  -> putWord8 0 >> putWord8 1
-        FTInt16 -> putWord16le 0 >> putWord8 1
-        FTInt32 -> putWord32le 0 >> putWord8 1
-        FTInt64 -> putWord64le 0 >> putWord8 1
-        FTFloat -> put (0 :: CFloat) >> putWord8 1
-        FTDouble -> put (0 :: CDouble) >> putWord8 1
-        x -> error $ "putValue unimplemented for null values of type " ++ show x
+        FTByte   -> fromWord8s [ 0, 1]
+        FTInt16  -> fromWord8s [ 0, 0, 1]
+        FTInt32  -> fromWord8s [ 0, 0, 0, 0, 1]
+        FTInt64  -> fromWord8s [ 0, 0, 0, 0, 0, 0, 0, 0, 1]
+        FTFloat  -> fromWord8s [ 0, 0, 0, 0, 1]
+        FTDouble -> fromWord8s [ 0, 0, 0, 0, 0, 0, 0, 0, 1]
+        x -> error $ "buildValue unimplemented for null values of type " ++ show x
+
+buildRecord :: RecordInfo -> Record -> Builder
+buildRecord (RecordInfo fields) (Record values) = mconcat $ Prelude.zipWith buildValue fields values
 
 putRecord :: RecordInfo -> Record -> Put
-putRecord (RecordInfo fields) (Record values) = zipWithM_ putValue fields values
+putRecord recordInfo record = putByteString $ toByteString $ buildRecord recordInfo record
 
 -- | Retrieves the bytesting representing all variable data for the current record
 getAllVariableData :: Get BS.ByteString

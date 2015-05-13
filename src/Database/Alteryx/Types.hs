@@ -49,23 +49,23 @@ newtype Miniblock = Miniblock BS.ByteString deriving (Eq, Show)
 newtype Block = Block BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 
-data FieldValue = FVBool Bool
-                | FVByte Int8
-                | FVInt16 Int16
-                | FVInt32 Int32
-                | FVInt64 Int64
-                | FVFixedDecimal Decimal
-                | FVFloat Float
-                | FVDouble Double
-                | FVString Text
-                | FVWString Text
-                | FVVString Text
-                | FVVWString Text
-                | FVDate Day
-                | FVTime DiffTime
-                | FVDateTime UTCTime
-                | FVBlob BSL.ByteString
-                | FVSpatialObject BSL.ByteString
+data FieldValue = FVBool !Bool
+                | FVByte !Int8
+                | FVInt16 !Int16
+                | FVInt32 !Int32
+                | FVInt64 !Int64
+                | FVFixedDecimal !Decimal
+                | FVFloat !Float
+                | FVDouble !Double
+                | FVString !Text
+                | FVWString !Text
+                | FVVString !Text
+                | FVVWString !Text
+                | FVDate !Day
+                | FVTime !DiffTime
+                | FVDateTime !UTCTime
+                | FVBlob !BSL.ByteString
+                | FVSpatialObject !BSL.ByteString
                 | FVUnknown
                 deriving (Eq, Show)
 

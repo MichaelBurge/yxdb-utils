@@ -17,7 +17,7 @@ import Control.Lens hiding (from, to)
 import Control.Monad as M
 import Control.Monad.Primitive as M
 import Control.Monad.Trans.Resource
-import qualified Control.Monad.Trans.State.Lazy as State
+import qualified Control.Monad.Trans.State.Strict as State
 import qualified Control.Newtype as NT
 import Data.Array.Unboxed as A
 import Data.Binary
@@ -30,6 +30,7 @@ import Data.Conduit
 import Data.Conduit.Binary
 import Data.Conduit.Combinators as CC
 import Data.Conduit.Serialization.Binary
+import qualified Data.Foldable as F
 import Data.Monoid
 import Data.Text as T
 import Data.Time.Clock
@@ -113,8 +114,7 @@ recordsToBlocks recordInfo = do
      else do
        let numRecords = V.length records
            minimumBlockSize = miniblockThreshold `div` 2
-           builder = mconcat $ V.toList $
-                     V.map (copyLazyByteString . runPut . putRecord recordInfo) records
+           builder = F.fold $ V.map (buildRecord recordInfo) records
        lift $ State.modify (& statisticsNumRecords %~ (+numRecords))
 
        yield $ Block $
@@ -202,7 +202,7 @@ sinkYxdbBytes handle = do
 
 sinkRecords :: (MonadThrow m, MonadIO m, MonadResource m) => Handle -> RecordInfo -> Sink Record m ()
 sinkRecords handle recordInfo =
-    evalStateLC defaultStatistics $
+    evalStateC defaultStatistics $
       recordsToBlocks recordInfo =$=
       blocksToYxdbBytes recordInfo =$
       sinkYxdbBytes handle
