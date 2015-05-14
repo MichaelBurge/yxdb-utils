@@ -13,7 +13,7 @@ import Data.Text as T
 import Data.Time
 import Data.Word
 
-data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex deriving (Eq, Show)
+data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex | CalgaryDb deriving (Eq, Show)
 
 data YxdbMetadata = YxdbMetadata {
   _metadataHeader     :: Header,
@@ -27,6 +27,12 @@ data YxdbFile = YxdbFile {
   _yxdbFileRecords    :: [Record],
   _yxdbFileBlockIndex :: BlockIndex
 } deriving (Eq, Show)
+
+data CalgaryFile = CalgaryFile {
+      _calgaryFileHeader   :: Header,
+      _calgaryFileMetadata :: RecordInfo,
+      _calgaryFileRecords  :: [Record]
+    }
 
 data Header = Header {
       _description         :: Text,
@@ -48,6 +54,7 @@ newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
 newtype Miniblock = Miniblock BS.ByteString deriving (Eq, Show)
 newtype Block = Block BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
+newtype CalgaryRecordInfo = CalgaryRecordInfo RecordInfo deriving (Eq, Show)
 
 data FieldValue = FVBool !Bool
                 | FVByte !Int8

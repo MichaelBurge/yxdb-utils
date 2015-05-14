@@ -45,6 +45,7 @@ import Data.Conduit.Lazy (lazyConsume)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, listToMaybe)
 import Data.Monoid
+import Data.ReinterpretCast (floatToWord, wordToFloat, doubleToWord, wordToDouble)
 import Data.Text as T
 import Data.Text.Encoding
 import qualified Data.Text.Lazy as TL
@@ -54,7 +55,7 @@ import Text.XML hiding (renderText)
 import Text.XML.Cursor as XMLC
     (
      Cursor,
-     ($//),
+     ($.//),
      attribute,
      element,
      fromDocument
@@ -72,6 +73,10 @@ spatialIndexRecordBlockSize = 32
 headerPageSize :: Int
 headerPageSize = 512
 
+-- | Number of bytes taken by the Calgary format's header
+calgaryHeaderPageSize :: Int
+calgaryHeaderPageSize = 8192
+
 -- | When writing miniblocks, how many bytes should each miniblock aim for?
 miniblockThreshold :: Int
 miniblockThreshold = 0x10000
@@ -83,6 +88,11 @@ bufferSize = 0x40000
 dbFileId :: DbType -> Word32
 dbFileId WrigleyDb = 0x00440205
 dbFileId WrigleyDb_NoSpatialIndex = 0x00440204
+dbFileId CalgaryDb = 0x00450101
+
+-- Start of metadata: 8196
+-- End of metadata: 10168
+-- 1972 = 3da * 2 = 986 * 2
 
 numBytes :: (Binary b, Num t) => b -> t
 numBytes x = fromIntegral $ BSL.length $ runPut $ put x
@@ -140,6 +150,104 @@ instance Binary YxdbFile where
         _yxdbFileBlockIndex = fBlockIndex
       }
 
+instance Binary CalgaryRecordInfo where
+    put calgaryRecordInfo = error "CalgaryRecordInfo: put undefined"
+    get = CalgaryRecordInfo <$> getCalgaryRecordInfo
+
+-- Start: 27bc = 10172
+-- End: 2826 = 10278
+-- Diff: 106 = 6A
+
+-- Start: 27c1 = 10177
+-- End: 2998 = 10648
+-- Diff: 1D7 = 471
+
+-- 8192 byte header
+-- Read 4 bytes to get number of UTF-16 characters(so double for number of bytes)
+-- blockSize is 16-bit
+-- block is a 32767-byte compressed buffer
+-- Is follow
+
+
+testParseRecord :: Get [BS.ByteString]
+testParseRecord = do
+  mystery1 <- getWord32le
+
+  byte <- getWord8
+  byteNul <- getWord8
+
+  mystery2 <- getWord16le
+  _ <- getWord8
+
+  short <- getWord16le
+  shortNul <- getWord8
+
+  mystery3 <- getWord16le
+  _ <- getWord8
+
+  int <- getWord32le
+  intNul <- getWord8
+
+  int64 <- getWord64le
+  int64Nul <- getWord8
+
+  decimalBs <- getByteString 7 -- From the size field read in the metadata
+  decimalNul <- getWord8
+
+  mystery4 <- getWord32le
+
+  float <- wordToFloat <$> getWord32le
+  floatNul <- getWord8
+
+  double <- wordToDouble <$> getWord64le
+  doubleNul <- getWord8
+
+  string <- getLazyByteStringNul
+
+
+  remainder <- getRemainingLazyByteString
+  error $ show remainder
+  error $ show [
+--             show mystery1,
+             show byte,
+--             show byteNul,
+--             show mystery2,
+             show short,
+--             show shortNul,
+
+--             show mystery3,
+             show int,
+--             show intNul,
+             show int64,
+--             show int64Nul
+             show remainder
+            ]
+ -- error $ show [ mystery1, byte, byteNul, mystery2, short, shortNul, remainder ]
+
+instance Binary CalgaryFile where
+    put calgaryFile = error "CalgaryFile: put undefined"
+    get = do
+      fHeader <- label "Header" $ isolate (fromIntegral calgaryHeaderPageSize) get :: Get Header
+      fNumMetadataBytes <- (2*) <$> fromIntegral <$> getWord32le
+      fMetadata <- label "Metadata" $ isolate fNumMetadataBytes $ get :: Get CalgaryRecordInfo
+      let numBlockBytes = numBlockBytesHeader $ fHeader
+          getRecordInfo (CalgaryRecordInfo x) = x
+          recordInfo = getRecordInfo fMetadata
+      br <- bytesRead
+      blockSize <- getWord16le
+      block <- getByteString $ fromIntegral blockSize
+      let decompressed = decompressByteStringFixed 100000 block
+
+      let bss = runGet testParseRecord $ BSL.fromStrict $ case decompressed of Just x  -> x
+      --block <- get :: Get Block
+--      record <- getRecord $ getRecordInfo fMetadata
+
+      mystery1 <- getWord64le
+      blockIndex1 <- getWord64le
+      -- Should be done by here
+
+      error $ show bss
+
 documentToTextWithoutXMLHeader :: Document -> T.Text
 documentToTextWithoutXMLHeader document =
   let events = Prelude.tail $ toEvents $ toXMLDocument document
@@ -148,6 +256,39 @@ documentToTextWithoutXMLHeader document =
      lazyConsume $
      sourceList events $=
      renderText def
+
+getRecordInfoText :: Bool -> Get T.Text
+getRecordInfoText isNullTerminated = do
+  if isNullTerminated
+     then do
+       bs <- BS.concat . BSL.toChunks <$>
+             getRemainingLazyByteString
+       when (BS.length bs < 4) $ fail $ "No trailing newline and null: " ++ show bs
+       let text = T.init $ T.init $ decodeUtf16LE bs
+       return text
+     else decodeUtf16LE <$> BS.concat . BSL.toChunks <$> getRemainingLazyByteString
+
+getCalgaryRecordInfo :: Get RecordInfo
+getCalgaryRecordInfo = do
+  text <- getRecordInfoText False
+  let document = parseText_ def $ TL.fromStrict text
+      cursor = fromDocument document
+      recordInfos = parseXmlRecordInfo cursor
+  case recordInfos of
+    []   -> fail "No RecordInfo entries found"
+    x:[] -> return x
+    xs   -> fail "Too many RecordInfo entries found"
+
+getYxdbRecordInfo :: Get RecordInfo
+getYxdbRecordInfo = do
+  text <- getRecordInfoText True
+  let document = parseText_ def $ TL.fromStrict text
+      cursor = fromDocument document
+      recordInfos = parseXmlRecordInfo cursor
+  case recordInfos of
+    []   -> fail "No RecordInfo entries found"
+    x:[] -> return x
+    xs   -> fail "Too many RecordInfo entries found"
 
 instance Binary RecordInfo where
     put metadata =
@@ -190,22 +331,11 @@ instance Binary RecordInfo where
               transformMetaInfo metadata
       in putByteString $ renderMetaInfo metadata
 
-    get = do
-      bs <- BS.concat . BSL.toChunks <$>
-            getRemainingLazyByteString
-      when (BS.length bs < 4) $ fail $ "No trailing newline and null: " ++ show bs
-      let text = T.init $ T.init $ decodeUtf16LE bs
-      let document = parseText_ def $ TL.fromStrict text
-      let cursor = fromDocument document
-      let recordInfos = parseXmlRecordInfo cursor
-      case recordInfos of
-        []   -> fail "No RecordInfo entries found"
-        x:[] -> return x
-        xs   -> fail "Too many RecordInfo entries found"
+    get = getYxdbRecordInfo
 
 parseXmlField :: Cursor -> [Field]
 parseXmlField cursor = do
-  let fieldCursors = cursor $// XMLC.element "Field"
+  let fieldCursors = cursor $.// XMLC.element "Field"
   fieldCursor <- fieldCursors
 
   aName <- attribute "name" fieldCursor
@@ -224,7 +354,7 @@ parseXmlField cursor = do
 
 parseXmlRecordInfo :: Cursor -> [RecordInfo]
 parseXmlRecordInfo cursor = do
-  let recordInfoCursors = cursor $// XMLC.element "RecordInfo"
+  let recordInfoCursors = cursor $.// XMLC.element "RecordInfo"
   recordInfoCursor <- recordInfoCursors
   let fields = parseXmlField recordInfoCursor
   return $ RecordInfo fields
