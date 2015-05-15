@@ -4,6 +4,7 @@ module Database.Alteryx.Fields
        (
          buildValue,
          getValue,
+         getVariableData,
          getAllVariableData,
          parseFieldType,
          putValue,

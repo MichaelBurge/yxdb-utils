@@ -171,39 +171,73 @@ instance Binary CalgaryRecordInfo where
 
 testParseRecord :: Get [BS.ByteString]
 testParseRecord = do
-  mystery1 <- getWord32le
+  mystery1 <- getWord32le -- 0
 
-  byte <- getWord8
-  byteNul <- getWord8
+  byte <- getValue $ Field "byte" FTByte Nothing Nothing
 
-  mystery2 <- getWord16le
-  _ <- getWord8
+  mystery2 <- getWord16le -- 0
+  mystery3 <- getWord8 -- 0
 
-  short <- getWord16le
-  shortNul <- getWord8
+  int16 <- getValue $ Field "int16" FTInt16 Nothing Nothing
 
-  mystery3 <- getWord16le
-  _ <- getWord8
+  mystery4 <- getWord16le -- 256
+  mystery5 <- getWord8 -- 0
 
-  int <- getWord32le
-  intNul <- getWord8
+  int32 <- getValue $ Field "int32" FTInt32 Nothing Nothing
 
-  int64 <- getWord64le
-  int64Nul <- getWord8
+  int64 <- getValue $ Field "int64" FTInt64 Nothing Nothing
 
-  decimalBs <- getByteString 7 -- From the size field read in the metadata
-  decimalNul <- getWord8
+  decimal <- getValue $ Field "decimal" FTFixedDecimal (Just 7) Nothing
 
-  mystery4 <- getWord32le
+  mystery6 <- getWord32le -- 0
 
-  float <- wordToFloat <$> getWord32le
-  floatNul <- getWord8
+  float <- getValue $ Field "float" FTFloat Nothing Nothing
 
-  double <- wordToDouble <$> getWord64le
-  doubleNul <- getWord8
+  double <- getValue $ Field "double" FTDouble Nothing Nothing
 
-  string <- getLazyByteStringNul
+  string <- getValue $ Field "string" FTString (Just 7) Nothing
 
+  wstring <- getValue $ Field "wstring "FTWString (Just 2) Nothing
+
+  let vfield = Field "vstring" FTVString Nothing Nothing
+      vwfield = Field "vwstring" FTVWString Nothing Nothing
+
+  vstring <- getValue vfield
+  vwstring <- getValue vwfield
+
+  date <- getValue $ Field "date" FTDate Nothing Nothing
+  time <- getValue $ Field "time" FTTime Nothing Nothing
+  datetime <- getValue $ Field "datetime" FTDateTime Nothing Nothing
+
+  mystery7 <- getWord32le -- 13
+
+--  error $ show [
+--             show mystery1, show mystery2, show mystery3, show mystery4, show mystery5,
+--                  show mystery6, show mystery7
+--            ]
+
+  error $ show [
+             show byte,
+             show int16,
+             show int32,
+             show int64,
+             show decimal,
+             show float,
+             show double,
+             show string,
+             show wstring,
+             show vstring,
+             show vwstring,
+             show date,
+             show time,
+             show datetime
+            ]
+
+
+
+
+  vfieldVarBs <- getVariableData
+  vwfieldVarBs <- getVariableData
 
   remainder <- getRemainingLazyByteString
   error $ show remainder
@@ -212,11 +246,11 @@ testParseRecord = do
              show byte,
 --             show byteNul,
 --             show mystery2,
-             show short,
+--             show short,
 --             show shortNul,
 
 --             show mystery3,
-             show int,
+--             show int,
 --             show intNul,
              show int64,
 --             show int64Nul
