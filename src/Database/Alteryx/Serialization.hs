@@ -50,6 +50,7 @@ import Data.Text as T
 import Data.Text.Encoding
 import qualified Data.Text.Lazy as TL
 import Data.Time.Clock.POSIX
+import qualified Data.Vector as V
 import System.IO.Unsafe (unsafePerformIO)
 import Text.XML hiding (renderText)
 import Text.XML.Cursor as XMLC
@@ -169,118 +170,135 @@ instance Binary CalgaryRecordInfo where
 -- Is follow
 
 
-testParseRecord :: Get [BS.ByteString]
-testParseRecord = do
+getCalgaryRecords :: CalgaryRecordInfo -> Get (V.Vector Record)
+getCalgaryRecords (CalgaryRecordInfo recordInfo) = do
   mystery1 <- getWord32le -- 0
 
-  byte <- getValue $ Field "byte" FTByte Nothing Nothing
+  mystery2 <- getWord32le -- 1: Number of records?
+  mystery3 <- getWord16le -- 0
 
-  mystery2 <- getWord16le -- 0
-  mystery3 <- getWord8 -- 0
+  V.replicateM (fromIntegral mystery2) $ (getRecord recordInfo)
+-- --  error $ show [ show mystery1, show mystery2, show mystery3 ]
 
-  int16 <- getValue $ Field "int16" FTInt16 Nothing Nothing
+--   x <- getRecord recordInfo
+--   y <- getRecord recordInfo
+--   error $ show y
 
-  mystery4 <- getWord16le -- 256
-  mystery5 <- getWord8 -- 0
+--   byte <- getValue $ Field "byte" FTByte Nothing Nothing
 
-  int32 <- getValue $ Field "int32" FTInt32 Nothing Nothing
+--   int16 <- getValue $ Field "int16" FTInt16 Nothing Nothing
 
-  int64 <- getValue $ Field "int64" FTInt64 Nothing Nothing
+--   int32 <- getValue $ Field "int32" FTInt32 Nothing Nothing
 
-  decimal <- getValue $ Field "decimal" FTFixedDecimal (Just 7) Nothing
+--   int64 <- getValue $ Field "int64" FTInt64 Nothing Nothing
 
-  mystery6 <- getWord32le -- 0
+--   decimal <- getValue $ Field "decimal" FTFixedDecimal (Just 7) Nothing
 
-  float <- getValue $ Field "float" FTFloat Nothing Nothing
+--   mystery6 <- getWord32le -- 0
 
-  double <- getValue $ Field "double" FTDouble Nothing Nothing
+--   float <- getValue $ Field "float" FTFloat Nothing Nothing
 
-  string <- getValue $ Field "string" FTString (Just 7) Nothing
+--   double <- getValue $ Field "double" FTDouble Nothing Nothing
 
-  wstring <- getValue $ Field "wstring "FTWString (Just 2) Nothing
+--   string <- getValue $ Field "string" FTString (Just 7) Nothing
 
-  let vfield = Field "vstring" FTVString Nothing Nothing
-      vwfield = Field "vwstring" FTVWString Nothing Nothing
+--   wstring <- getValue $ Field "wstring "FTWString (Just 2) Nothing
 
-  vstring <- getValue vfield
-  vwstring <- getValue vwfield
+--   let vfield = Field "vstring" FTVString Nothing Nothing
+--       vwfield = Field "vwstring" FTVWString Nothing Nothing
 
-  date <- getValue $ Field "date" FTDate Nothing Nothing
-  time <- getValue $ Field "time" FTTime Nothing Nothing
-  datetime <- getValue $ Field "datetime" FTDateTime Nothing Nothing
+--   vstring <- getValue vfield
+--   vwstring <- getValue vwfield
 
-  mystery7 <- getWord32le -- 13
+--   date <- getValue $ Field "date" FTDate Nothing Nothing
+--   time <- getValue $ Field "time" FTTime Nothing Nothing
+--   datetime <- getValue $ Field "datetime" FTDateTime Nothing Nothing
 
---  error $ show [
---             show mystery1, show mystery2, show mystery3, show mystery4, show mystery5,
---                  show mystery6, show mystery7
---            ]
+--   mystery7 <- getWord32le -- 13
 
-  error $ show [
-             show byte,
-             show int16,
-             show int32,
-             show int64,
-             show decimal,
-             show float,
-             show double,
-             show string,
-             show wstring,
-             show vstring,
-             show vwstring,
-             show date,
-             show time,
-             show datetime
-            ]
+-- --  error $ show [
+-- --             show mystery1, show mystery2, show mystery3, show mystery4, show mystery5,
+-- --                  show mystery6, show mystery7
+-- --            ]
+
+--   error $ show [
+--              show byte,
+--              show int16,
+--              show int32,
+--              show int64,
+--              show decimal,
+--              show float,
+--              show double,
+--              show string,
+--              show wstring,
+--              show vstring,
+--              show vwstring,
+--              show date,
+--              show time,
+--              show datetime
+--             ]
 
 
 
 
-  vfieldVarBs <- getVariableData
-  vwfieldVarBs <- getVariableData
+--   vfieldVarBs <- getVariableData
+--   vwfieldVarBs <- getVariableData
 
-  remainder <- getRemainingLazyByteString
-  error $ show remainder
-  error $ show [
---             show mystery1,
-             show byte,
---             show byteNul,
---             show mystery2,
---             show short,
---             show shortNul,
+--   remainder <- getRemainingLazyByteString
+--   error $ show remainder
+--   error $ show [
+-- --             show mystery1,
+--              show byte,
+-- --             show byteNul,
+-- --             show mystery2,
+-- --             show short,
+-- --             show shortNul,
 
---             show mystery3,
---             show int,
---             show intNul,
-             show int64,
---             show int64Nul
-             show remainder
-            ]
- -- error $ show [ mystery1, byte, byteNul, mystery2, short, shortNul, remainder ]
+-- --             show mystery3,
+-- --             show int,
+-- --             show intNul,
+--              show int64,
+-- --             show int64Nul
+--              show remainder
+--             ]
+--  -- error $ show [ mystery1, byte, byteNul, mystery2, short, shortNul, remainder ]
 
 instance Binary CalgaryFile where
     put calgaryFile = error "CalgaryFile: put undefined"
     get = do
-      fHeader <- label "Header" $ isolate (fromIntegral calgaryHeaderPageSize) get :: Get Header
+      fHeader <- label "Header" $ isolate (fromIntegral calgaryHeaderPageSize) get :: Get CalgaryHeader
       fNumMetadataBytes <- (2*) <$> fromIntegral <$> getWord32le
-      fMetadata <- label "Metadata" $ isolate fNumMetadataBytes $ get :: Get CalgaryRecordInfo
-      let numBlockBytes = numBlockBytesHeader $ fHeader
-          getRecordInfo (CalgaryRecordInfo x) = x
-          recordInfo = getRecordInfo fMetadata
-      br <- bytesRead
-      blockSize <- getWord16le
-      block <- getByteString $ fromIntegral blockSize
-      let decompressed = decompressByteStringFixed 100000 block
+      fRecordInfo <- label "Metadata" $ isolate fNumMetadataBytes $ get :: Get CalgaryRecordInfo
+      let numRecords = fromIntegral $ fHeader ^. calgaryHeaderNumRecords
+      let readOneBlock = do
+            blockSize <- getWord16le
+            block <- getByteString $ fromIntegral blockSize
+            let decompressed = decompressByteStringFixed 100000 block
 
-      let bss = runGet testParseRecord $ BSL.fromStrict $ case decompressed of Just x  -> x
-      --block <- get :: Get Block
---      record <- getRecord $ getRecordInfo fMetadata
+            let records = runGet (getCalgaryRecords fRecordInfo ) $
+                          BSL.fromStrict $ case decompressed of Just x  -> x
+            return records
+          readAllBlocks remainingRecords = do
+            if remainingRecords > 0
+              then do
+                records <- readOneBlock
+                let newRecords = remainingRecords - V.length records
+                (records :) <$> readAllBlocks newRecords
+              else return []
+      recordses <- readAllBlocks numRecords :: Get [ V.Vector Record ]
 
       mystery1 <- getWord64le
-      blockIndex1 <- getWord64le
+      indices <- replicateM numRecords getWord64le
+      let blockIndex = BlockIndex $ listArray (0, fromIntegral $ numRecords-1) $ Prelude.map fromIntegral indices
       -- Should be done by here
 
-      error $ show bss
+      let result = CalgaryFile {
+                   _calgaryFileHeader = fHeader,
+                   _calgaryFileMetadata = fRecordInfo,
+                   _calgaryFileRecords = recordses,
+                   _calgaryFileIndex = blockIndex
+                 }
+      error $ show result
 
 documentToTextWithoutXMLHeader :: Document -> T.Text
 documentToTextWithoutXMLHeader document =
@@ -524,7 +542,7 @@ instance Binary Header where
         fRecordBlockIndexPos <- label "Record Block"        getWord64le
         fNumRecords          <- label "Num Records"         getWord64le
         fCompressionVersion  <- label "Compression Version" getWord32le
-        fReservedSpace       <- label "Reserved Space" $ (BS.concat . BSL.toChunks <$> getRemainingLazyByteString)
+        fReservedSpace       <- label "Reserved Space" $ (BSL.toStrict <$> getRemainingLazyByteString)
 
         return $ Header {
             _description         = fDescription,
@@ -540,3 +558,31 @@ instance Binary Header where
             _compressionVersion  = fCompressionVersion,
             _reservedSpace       = fReservedSpace
         }
+
+instance Binary CalgaryHeader where
+    put header = error "CalgaryHeader::put is unimplemented"
+    get = do
+      description  <- decodeUtf8 <$> getByteString 64
+      fileId       <- getWord32le
+      creationDate <- posixSecondsToUTCTime <$> fromIntegral <$> getWord32le
+      flags1       <- getWord32le
+      flags2       <- getWord32le
+      numRecords   <- getWord32le
+      mystery1     <- getWord32le
+      mystery2     <- getWord32le
+      mystery3     <- getWord32le
+      mystery4     <- getWord32le
+      reserved     <- BSL.toStrict <$> getRemainingLazyByteString
+      return CalgaryHeader {
+                   _calgaryHeaderDescription = description,
+                   _calgaryHeaderFileId = fileId,
+                   _calgaryHeaderCreationDate = creationDate,
+                   _calgaryHeaderFlags1 = flags1,
+                   _calgaryHeaderFlags2 = flags2,
+                   _calgaryHeaderNumRecords = numRecords,
+                   _calgaryHeaderMystery1 = mystery1,
+                   _calgaryHeaderMystery2 = mystery2,
+                   _calgaryHeaderMystery3 = mystery3,
+                   _calgaryHeaderMystery4 = mystery4,
+                   _calgaryHeaderReserved = reserved
+                 }

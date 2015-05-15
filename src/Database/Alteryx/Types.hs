@@ -12,6 +12,7 @@ import Data.Int
 import Data.Text as T
 import Data.Time
 import Data.Word
+import qualified Data.Vector as V
 
 data DbType = WrigleyDb | WrigleyDb_NoSpatialIndex | CalgaryDb deriving (Eq, Show)
 
@@ -29,10 +30,11 @@ data YxdbFile = YxdbFile {
 } deriving (Eq, Show)
 
 data CalgaryFile = CalgaryFile {
-      _calgaryFileHeader   :: Header,
-      _calgaryFileMetadata :: RecordInfo,
-      _calgaryFileRecords  :: [Record]
-    }
+      _calgaryFileHeader   :: CalgaryHeader,
+      _calgaryFileMetadata :: CalgaryRecordInfo,
+      _calgaryFileRecords  :: [V.Vector Record],
+      _calgaryFileIndex    :: BlockIndex
+    } deriving (Eq, Show)
 
 data Header = Header {
       _description         :: Text,
@@ -48,6 +50,21 @@ data Header = Header {
       _compressionVersion  :: Word32,
       _reservedSpace       :: BS.ByteString
 } deriving (Eq, Show)
+
+data CalgaryHeader = CalgaryHeader {
+      _calgaryHeaderDescription :: Text,
+      _calgaryHeaderFileId :: Word32,
+      _calgaryHeaderCreationDate :: UTCTime,
+      _calgaryHeaderFlags1 :: Word32,
+      _calgaryHeaderFlags2 :: Word32,
+      _calgaryHeaderNumRecords :: Word32,
+      _calgaryHeaderMystery1 :: Word32,
+      _calgaryHeaderMystery2 :: Word32,
+      _calgaryHeaderMystery3 :: Word32,
+      _calgaryHeaderMystery4 :: Word32,
+      _calgaryHeaderReserved :: BS.ByteString
+    } deriving (Eq, Show)
+
 
 newtype Record = Record [ Maybe FieldValue ] deriving (Eq, Show)
 newtype RecordInfo = RecordInfo [ Field ] deriving (Eq, Show)
@@ -141,3 +158,4 @@ makeLenses ''YxdbFile
 makeLenses ''Header
 makeLenses ''YxdbMetadata
 makeLenses ''StreamingCSVStatistics
+makeLenses ''CalgaryHeader
