@@ -6,7 +6,9 @@ module Database.Alteryx.StreamingYxdb
         blocksToRecords,
         sinkRecords,
         getMetadata,
+        readCalgaryFileNoRecords,
         recordsToBlocks,
+        sourceCalgaryFileRecords,
         sourceFileBlocks,
         sourceFileRecords
        )where

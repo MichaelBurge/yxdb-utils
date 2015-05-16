@@ -45,6 +45,16 @@ extra-source-files:
   test-data/*.csv
   test-data/*.yxdb
 
+executable cydb2csv
+  hs-source-dirs: bin-src
+  main-is: Cydb2Csv.hs
+  build-depends:
+    base == 4.*,
+    yxdb-utils
+  ghc-prof-options: -O2 -prof-auto
+--  ghc-options: -threaded -auto-all -rtsopts -static
+--  ld-options: -Wl,-Bdynamic -lc -static -pthread
+
 executable csv2yxdb
   hs-source-dirs: bin-src
   main-is: Csv2Yxdb.hs
@@ -70,6 +80,7 @@ library
   exposed-modules:
     Codec.Compression.LZF.ByteString,
     Database.Alteryx.CLI.Csv2Yxdb
+    Database.Alteryx.CLI.Cydb2Csv
     Database.Alteryx.CLI.Yxdb2Csv
     Data.Binary.C,
     Database.Alteryx
