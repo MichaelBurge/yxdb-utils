@@ -62,6 +62,8 @@ data CalgaryHeader = CalgaryHeader {
       _calgaryHeaderMystery3      :: Word32,
       _calgaryHeaderMystery4      :: Word32,
       _calgaryHeaderMystery5      :: Word32,
+      _calgaryHeaderMystery6      :: Word64,
+      _calgaryHeaderNumBlocks     :: Word32,
       _calgaryHeaderReserved      :: BS.ByteString
     } deriving (Eq, Show)
 

@@ -4,6 +4,7 @@ module Database.Alteryx.StreamingYxdb
        (
         blocksToDecompressedBytes,
         blocksToRecords,
+        getOneBlock,
         sinkRecords,
         getMetadata,
         readCalgaryFileNoRecords,
@@ -70,16 +71,14 @@ readCalgaryFileNoRecords filepath = do
   headerBS <- BSL.hGet handle calgaryHeaderSize
   let header = decode $ headerBS :: CalgaryHeader
 
-  recordInfoNumCharacters <- decode <$> BSL.hGet handle 4 :: IO Int
-  let recordInfoNumBytes = 2 * recordInfoNumCharacters
-  recordInfoBs <- BSL.hGet handle recordInfoNumBytes
-  let recordInfo = decode $ recordInfoBs
+  recordInfoNumCharacters <- runGet getWord32le <$> BSL.hGet handle 4 :: IO Word32
+  let recordInfoNumBytes = fromIntegral $ 2 * recordInfoNumCharacters
+  recordInfoBs <- BSL.toStrict <$> BSL.hGet handle recordInfoNumBytes
+  let recordInfo = decode $ seq recordInfoBs $ BSL.fromStrict recordInfoBs
 
   hSeek handle AbsoluteSeek $ fromIntegral $ header ^. calgaryHeaderIndexPosition
   indexBs <- BSL.hGetContents handle
   let indices = runGet getCalgaryBlockIndex indexBs :: CalgaryBlockIndex
-
-  hClose handle
 
   return CalgaryFile {
                _calgaryFileHeader   = header,
@@ -103,17 +102,15 @@ sourceCalgaryFileRecords filepath = do
   calgaryFile <- liftIO $ readCalgaryFileNoRecords filepath
   let blockRanges = calgaryFileBlockRanges calgaryFile
       recordInfo = calgaryFile ^. calgaryFileRecordInfo
-  sourceBlocks filepath blockRanges $= calgaryBlock2Records recordInfo
+  sourceCalgaryBlocks filepath blockRanges recordInfo $= calgaryBlock2Records recordInfo
 
 -- TODO: This should probably yield vectors instead of individual records
-calgaryBlock2Records :: (Monad m) => CalgaryRecordInfo -> Conduit Block m Record
+calgaryBlock2Records :: (Monad m) => CalgaryRecordInfo -> Conduit (V.Vector Record) m Record
 calgaryBlock2Records recordInfo = do
   mBlock <- await
   case mBlock of
     Nothing -> return ()
-    Just (Block bs) -> do
-      let records = runGet (getCalgaryRecords recordInfo) bs :: V.Vector Record
-      V.forM_ records yield
+    Just (rs) -> V.forM_ rs yield
 
 calgaryFileBlockRanges :: CalgaryFile -> BlockRanges
 calgaryFileBlockRanges calgaryFile =
@@ -139,6 +136,16 @@ blockRanges metadata =
       blockEnd = fromIntegral $ metadata ^. metadataHeader ^. recordBlockIndexPos
       ranges = Prelude.zip blockIndices (Prelude.tail $ blockIndices ++ return blockEnd)
   in ranges
+
+sourceCalgaryBlock :: (MonadResource m) => FilePath -> CalgaryRecordInfo -> BlockRange -> Source m (V.Vector Record)
+sourceCalgaryBlock filepath recordInfo (from, to) = do
+  let numBytes = fromIntegral $ to - from
+  rawBlock <- BSL.fromStrict <$> readRange filepath (Just from) (Just numBytes)
+  let block = runGet (label ("yieldBlock: " ++ show (from, numBytes)) $ getOneBlock recordInfo) rawBlock
+  yield block
+
+sourceCalgaryBlocks :: (MonadResource m) => FilePath -> BlockRanges -> CalgaryRecordInfo -> Source m (V.Vector Record)
+sourceCalgaryBlocks filepath ranges recordInfo = forM_ ranges $ sourceCalgaryBlock filepath recordInfo
 
 sourceBlock :: (MonadResource m) => FilePath -> BlockRange -> Source m Block
 sourceBlock  filepath (from, to) = do

@@ -9,6 +9,7 @@ module Database.Alteryx.Serialization
       dbFileId,
       getCalgaryRecords,
       getCalgaryBlockIndex,
+      getOneBlock,
       getRecord,
       getValue,
       putRecord,
@@ -265,6 +266,15 @@ getCalgaryRecords (CalgaryRecordInfo recordInfo) = do
 --              show remainder
 --             ]
 --  -- error $ show [ mystery1, byte, byteNul, mystery2, short, shortNul, remainder ]
+getOneBlock :: CalgaryRecordInfo -> Get (V.Vector Record)
+getOneBlock recordInfo = do
+  blockSize <- getWord16le
+  block <- getByteString $ fromIntegral blockSize
+  let decompressed = decompressByteStringFixed 100000 block
+
+  let records = runGet (getCalgaryRecords recordInfo ) $
+                 BSL.fromStrict $ case decompressed of Just x  -> x
+  return records
 
 instance Binary CalgaryFile where
     put calgaryFile = error "CalgaryFile: put undefined"
@@ -273,18 +283,10 @@ instance Binary CalgaryFile where
       fNumMetadataBytes <- (2*) <$> fromIntegral <$> getWord32le
       fRecordInfo <- label "Metadata" $ isolate fNumMetadataBytes $ get :: Get CalgaryRecordInfo
       let numRecords = fromIntegral $ fHeader ^. calgaryHeaderNumRecords
-      let readOneBlock = do
-            blockSize <- getWord16le
-            block <- getByteString $ fromIntegral blockSize
-            let decompressed = decompressByteStringFixed 100000 block
-
-            let records = runGet (getCalgaryRecords fRecordInfo ) $
-                          BSL.fromStrict $ case decompressed of Just x  -> x
-            return records
-          readAllBlocks remainingRecords = do
+      let readAllBlocks remainingRecords = do
             if remainingRecords > 0
               then do
-                records <- readOneBlock
+                records <- getOneBlock fRecordInfo
                 let newRecords = remainingRecords - V.length records
                 (records :) <$> readAllBlocks newRecords
               else return []
@@ -579,6 +581,8 @@ instance Binary CalgaryHeader where
       mystery3      <- getWord32le
       mystery4      <- getWord32le
       mystery5      <- getWord32le
+      mystery6      <- getWord64le
+      numBlocks     <- getWord32le
       reserved      <- BSL.toStrict <$> getRemainingLazyByteString
       return CalgaryHeader {
                    _calgaryHeaderDescription = description,
@@ -591,5 +595,7 @@ instance Binary CalgaryHeader where
                    _calgaryHeaderMystery3 = mystery3,
                    _calgaryHeaderMystery4 = mystery4,
                    _calgaryHeaderMystery5 = mystery5,
+                   _calgaryHeaderMystery6 = mystery6,
+                   _calgaryHeaderNumBlocks = numBlocks,
                    _calgaryHeaderReserved = reserved
                  }
