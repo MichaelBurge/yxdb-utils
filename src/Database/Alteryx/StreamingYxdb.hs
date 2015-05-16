@@ -61,6 +61,31 @@ getMetadata filepath = runResourceT $ do
     _metadataBlockIndex = blockIndex
     }
 
+readCalgaryFileNoRecords :: FilePath -> IO CalgaryFile
+readCalgaryFileNoRecords filepath = do
+  handle <- openBinaryFile filepath ReadMode
+
+  headerBS <- BSL.hGet handle calgaryHeaderSize
+  let header = decode $ headerBS :: CalgaryHeader
+
+  recordInfoNumCharacters <- decode <$> BSL.hGet handle 4 :: IO Int
+  let recordInfoNumBytes = 2 * recordInfoNumCharacters
+  recordInfoBs <- BSL.hGet handle recordInfoNumBytes
+  let recordInfo = decode $ recordInfoBs
+
+  hSeek handle AbsoluteSeek $ fromIntegral $ header ^. calgaryHeaderIndexPosition
+  indexBs <- BSL.hGetContents handle
+  let indices = runGet getCalgaryBlockIndex indexBs :: CalgaryBlockIndex
+
+  hClose handle
+
+  return CalgaryFile {
+               _calgaryFileHeader   = header,
+               _calgaryFileRecordInfo = recordInfo,
+               _calgaryFileRecords  = [],
+               _calgaryFileIndex    = indices
+             }
+
 type BlockRange = (Int, Int)
 type BlockRanges = [BlockRange]
 
@@ -70,6 +95,37 @@ sourceFileRecords filename = do
   let recordInfo = metadata ^. metadataRecordInfo
 
   sourceFileBlocks filename metadata $= blocksToRecords recordInfo
+
+sourceCalgaryFileRecords :: (MonadResource m, MonadIO m) => FilePath -> Source m Record
+sourceCalgaryFileRecords filepath = do
+  calgaryFile <- liftIO $ readCalgaryFileNoRecords filepath
+  let blockRanges = calgaryFileBlockRanges calgaryFile
+      recordInfo = calgaryFile ^. calgaryFileRecordInfo
+  sourceBlocks filepath blockRanges $= calgaryBlock2Records recordInfo
+
+-- TODO: This should probably yield vectors instead of individual records
+calgaryBlock2Records :: (Monad m) => CalgaryRecordInfo -> Conduit Block m Record
+calgaryBlock2Records recordInfo = do
+  mBlock <- await
+  case mBlock of
+    Nothing -> return ()
+    Just (Block bs) -> do
+      let records = runGet (getCalgaryRecords recordInfo) bs :: V.Vector Record
+      V.forM_ records yield
+
+calgaryFileBlockRanges :: CalgaryFile -> BlockRanges
+calgaryFileBlockRanges calgaryFile =
+    let blockPosition = calgaryFile ^. calgaryFileHeader ^. calgaryHeaderIndexPosition
+        blockIndex = calgaryFile ^. calgaryFileIndex
+    in calgaryBlockIndexRanges blockPosition blockIndex
+
+calgaryBlockIndexRanges :: Word32 -> CalgaryBlockIndex -> BlockRanges
+calgaryBlockIndexRanges indexPosition (CalgaryBlockIndex indices) =
+  let allButLast = V.zip indices $ V.tail indices
+      lastRange = (V.last indices, fromIntegral indexPosition)
+  in V.toList $
+     V.map (\(a,b) -> (fromIntegral a, fromIntegral b)) $
+     V.snoc allButLast lastRange
 
 blockRanges :: YxdbMetadata -> BlockRanges
 blockRanges metadata =

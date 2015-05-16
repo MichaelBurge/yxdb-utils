@@ -30,10 +30,10 @@ data YxdbFile = YxdbFile {
 } deriving (Eq, Show)
 
 data CalgaryFile = CalgaryFile {
-      _calgaryFileHeader   :: CalgaryHeader,
-      _calgaryFileMetadata :: CalgaryRecordInfo,
-      _calgaryFileRecords  :: [V.Vector Record],
-      _calgaryFileIndex    :: BlockIndex
+      _calgaryFileHeader     :: CalgaryHeader,
+      _calgaryFileRecordInfo :: CalgaryRecordInfo,
+      _calgaryFileRecords    :: [V.Vector Record],
+      _calgaryFileIndex      :: CalgaryBlockIndex
     } deriving (Eq, Show)
 
 data Header = Header {
@@ -52,17 +52,17 @@ data Header = Header {
 } deriving (Eq, Show)
 
 data CalgaryHeader = CalgaryHeader {
-      _calgaryHeaderDescription :: Text,
-      _calgaryHeaderFileId :: Word32,
-      _calgaryHeaderCreationDate :: UTCTime,
-      _calgaryHeaderFlags1 :: Word32,
-      _calgaryHeaderFlags2 :: Word32,
-      _calgaryHeaderNumRecords :: Word32,
-      _calgaryHeaderMystery1 :: Word32,
-      _calgaryHeaderMystery2 :: Word32,
-      _calgaryHeaderMystery3 :: Word32,
-      _calgaryHeaderMystery4 :: Word32,
-      _calgaryHeaderReserved :: BS.ByteString
+      _calgaryHeaderDescription   :: Text,
+      _calgaryHeaderFileId        :: Word32,
+      _calgaryHeaderCreationDate  :: UTCTime,
+      _calgaryHeaderIndexPosition :: Word32,
+      _calgaryHeaderMystery1      :: Word32,
+      _calgaryHeaderNumRecords    :: Word32,
+      _calgaryHeaderMystery2      :: Word32,
+      _calgaryHeaderMystery3      :: Word32,
+      _calgaryHeaderMystery4      :: Word32,
+      _calgaryHeaderMystery5      :: Word32,
+      _calgaryHeaderReserved      :: BS.ByteString
     } deriving (Eq, Show)
 
 
@@ -72,6 +72,7 @@ newtype Miniblock = Miniblock BS.ByteString deriving (Eq, Show)
 newtype Block = Block BSL.ByteString deriving (Eq, Show)
 newtype BlockIndex = BlockIndex (UArray Int Int64) deriving (Eq, Show)
 newtype CalgaryRecordInfo = CalgaryRecordInfo RecordInfo deriving (Eq, Show)
+newtype CalgaryBlockIndex = CalgaryBlockIndex (V.Vector Int64) deriving (Eq, Show)
 
 data FieldValue = FVBool !Bool
                 | FVByte !Int8
@@ -159,3 +160,4 @@ makeLenses ''Header
 makeLenses ''YxdbMetadata
 makeLenses ''StreamingCSVStatistics
 makeLenses ''CalgaryHeader
+makeLenses ''CalgaryFile

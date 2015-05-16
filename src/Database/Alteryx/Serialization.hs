@@ -5,7 +5,10 @@ module Database.Alteryx.Serialization
     (
       buildBlock,
       buildRecord,
+      calgaryHeaderSize,
       dbFileId,
+      getCalgaryRecords,
+      getCalgaryBlockIndex,
       getRecord,
       getValue,
       putRecord,
@@ -75,8 +78,8 @@ headerPageSize :: Int
 headerPageSize = 512
 
 -- | Number of bytes taken by the Calgary format's header
-calgaryHeaderPageSize :: Int
-calgaryHeaderPageSize = 8192
+calgaryHeaderSize :: Int
+calgaryHeaderSize = 8192
 
 -- | When writing miniblocks, how many bytes should each miniblock aim for?
 miniblockThreshold :: Int
@@ -266,7 +269,7 @@ getCalgaryRecords (CalgaryRecordInfo recordInfo) = do
 instance Binary CalgaryFile where
     put calgaryFile = error "CalgaryFile: put undefined"
     get = do
-      fHeader <- label "Header" $ isolate (fromIntegral calgaryHeaderPageSize) get :: Get CalgaryHeader
+      fHeader <- label "Header" $ isolate (fromIntegral calgaryHeaderSize) get :: Get CalgaryHeader
       fNumMetadataBytes <- (2*) <$> fromIntegral <$> getWord32le
       fRecordInfo <- label "Metadata" $ isolate fNumMetadataBytes $ get :: Get CalgaryRecordInfo
       let numRecords = fromIntegral $ fHeader ^. calgaryHeaderNumRecords
@@ -287,18 +290,22 @@ instance Binary CalgaryFile where
               else return []
       recordses <- readAllBlocks numRecords :: Get [ V.Vector Record ]
 
-      mystery1 <- getWord64le
-      indices <- replicateM numRecords getWord64le
-      let blockIndex = BlockIndex $ listArray (0, fromIntegral $ numRecords-1) $ Prelude.map fromIntegral indices
+      blockIndex <- getCalgaryBlockIndex
       -- Should be done by here
 
       let result = CalgaryFile {
                    _calgaryFileHeader = fHeader,
-                   _calgaryFileMetadata = fRecordInfo,
+                   _calgaryFileRecordInfo = fRecordInfo,
                    _calgaryFileRecords = recordses,
                    _calgaryFileIndex = blockIndex
                  }
       error $ show result
+
+getCalgaryBlockIndex :: Get CalgaryBlockIndex
+getCalgaryBlockIndex = do
+      mystery1 <- getWord64le
+      indices <- V.fromList <$> untilM' getWord64le isEmpty
+      return $ CalgaryBlockIndex $ V.map fromIntegral indices
 
 documentToTextWithoutXMLHeader :: Document -> T.Text
 documentToTextWithoutXMLHeader document =
@@ -562,27 +569,27 @@ instance Binary Header where
 instance Binary CalgaryHeader where
     put header = error "CalgaryHeader::put is unimplemented"
     get = do
-      description  <- decodeUtf8 <$> getByteString 64
-      fileId       <- getWord32le
-      creationDate <- posixSecondsToUTCTime <$> fromIntegral <$> getWord32le
-      flags1       <- getWord32le
-      flags2       <- getWord32le
-      numRecords   <- getWord32le
-      mystery1     <- getWord32le
-      mystery2     <- getWord32le
-      mystery3     <- getWord32le
-      mystery4     <- getWord32le
-      reserved     <- BSL.toStrict <$> getRemainingLazyByteString
+      description   <- decodeUtf8 <$> getByteString 64
+      fileId        <- getWord32le
+      creationDate  <- posixSecondsToUTCTime <$> fromIntegral <$> getWord32le
+      indexPosition <- getWord32le
+      mystery1      <- getWord32le
+      numRecords    <- getWord32le
+      mystery2      <- getWord32le
+      mystery3      <- getWord32le
+      mystery4      <- getWord32le
+      mystery5      <- getWord32le
+      reserved      <- BSL.toStrict <$> getRemainingLazyByteString
       return CalgaryHeader {
                    _calgaryHeaderDescription = description,
                    _calgaryHeaderFileId = fileId,
                    _calgaryHeaderCreationDate = creationDate,
-                   _calgaryHeaderFlags1 = flags1,
-                   _calgaryHeaderFlags2 = flags2,
-                   _calgaryHeaderNumRecords = numRecords,
+                   _calgaryHeaderIndexPosition = indexPosition,
                    _calgaryHeaderMystery1 = mystery1,
+                   _calgaryHeaderNumRecords = numRecords,
                    _calgaryHeaderMystery2 = mystery2,
                    _calgaryHeaderMystery3 = mystery3,
                    _calgaryHeaderMystery4 = mystery4,
+                   _calgaryHeaderMystery5 = mystery5,
                    _calgaryHeaderReserved = reserved
                  }
