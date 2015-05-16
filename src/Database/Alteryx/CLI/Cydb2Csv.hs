@@ -7,14 +7,17 @@ import Database.Alteryx
 import Control.Lens
 import Control.Monad.Trans.Resource
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Data.Conduit
 import Data.Conduit.Binary
+import Data.Monoid
 import System.Console.GetOpt
 import System.Environment
 import System.IO
 
 data Settings = Settings {
-      _settingFilename :: String
+      _settingFilename :: String,
+      _settingMetadata :: Bool
     } deriving (Eq, Show)
 
 makeLenses ''Settings
@@ -23,6 +26,7 @@ options :: [OptDescr (Settings -> Settings)]
 options =
   let set setting = \o -> (& setting .~ Just (read o))
   in [
+   Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump the file's metadata"
   ]
 
 parseOptions :: [String] -> IO ([Settings -> Settings])
@@ -45,8 +49,25 @@ getSettings = do
 
 defaultSettings :: Settings
 defaultSettings = Settings {
-                    _settingFilename = error "defaultSettings: Filename empty"
+                    _settingFilename = error "defaultSettings: Filename empty",
+                    _settingMetadata = False
                   }
+
+printHeader :: CalgaryHeader -> IO ()
+printHeader header = do
+  T.putStrLn "Header:"
+  T.putStrLn $ ("  Description: " <>) $ header ^. calgaryHeaderDescription
+  T.putStrLn $ ("  FileId: " <>) $ T.pack $ show $ header ^. calgaryHeaderFileId
+  T.putStrLn $ ("  CreationDate: " <>) $ T.pack $ show $ header ^. calgaryHeaderCreationDate
+  T.putStrLn $ ("  IndexPosition: " <>) $ T.pack $ show $ header ^. calgaryHeaderIndexPosition
+  T.putStrLn $ ("  Mystery1: " <>) $ T.pack $ show $ header ^. calgaryHeaderMystery1
+  T.putStrLn $ ("  NumRecords: " <>) $ T.pack $ show $ header ^. calgaryHeaderNumRecords
+  T.putStrLn $ ("  Mystery2: " <>) $ T.pack $ show $ header ^. calgaryHeaderMystery2
+  T.putStrLn $ ("  Mystery3: " <>) $ T.pack $ show $ header ^. calgaryHeaderMystery3
+  T.putStrLn $ ("  Mystery4: " <>) $ T.pack $ show $ header ^. calgaryHeaderMystery4
+  T.putStrLn $ ("  Mystery5: " <>) $ T.pack $ show $ header ^. calgaryHeaderMystery5
+  T.putStrLn $ ("  Mystery6: " <>) $ T.pack $ show $ header ^. calgaryHeaderMystery6
+  T.putStrLn $ ("  Number of Blocks: " <>) $ T.pack $ show $ header ^. calgaryHeaderNumBlocks
 
 runCydb2Csv :: Settings -> IO ()
 runCydb2Csv settings = do
@@ -61,7 +82,15 @@ runCydb2Csv settings = do
     csv2bytes $$
     sinkHandle stdout
 
+runMetadata :: Settings -> IO ()
+runMetadata settings = do
+  let filename = settings ^. settingFilename
+  calgaryFile <- readCalgaryFileNoRecords filename
+  printHeader $ calgaryFile ^. calgaryFileHeader
+
 cydb2csvMain :: IO ()
 cydb2csvMain = do
   settings <- getSettings
-  runCydb2Csv settings
+  if settings ^. settingMetadata
+     then runMetadata settings
+     else runCydb2Csv settings
