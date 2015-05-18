@@ -97,6 +97,13 @@ sourceFileRecords filename = do
 
   sourceFileBlocks filename metadata $= blocksToRecords recordInfo
 
+sourceCalgaryFileBlocks :: (MonadResource m, MonadIO m) => FilePath -> Source m (V.Vector Record)
+sourceCalgaryFileBlocks filepath = do
+  calgaryFile <- liftIO $ readCalgaryFileNoRecords filepath
+  let blockRanges = calgaryFileBlockRanges calgaryFile
+      recordInfo = calgaryFile ^. calgaryFileRecordInfo
+  sourceCalgaryBlocks filepath blockRanges recordInfo
+
 sourceCalgaryFileRecords :: (MonadResource m, MonadIO m) => FilePath -> Source m Record
 sourceCalgaryFileRecords filepath = do
   calgaryFile <- liftIO $ readCalgaryFileNoRecords filepath

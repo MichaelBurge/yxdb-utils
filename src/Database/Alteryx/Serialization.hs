@@ -178,10 +178,25 @@ getCalgaryRecords :: CalgaryRecordInfo -> Get (V.Vector Record)
 getCalgaryRecords (CalgaryRecordInfo recordInfo) = do
   mystery1 <- getWord32le -- 0
 
-  mystery2 <- getWord32le -- 1: Number of records?
+  mystery2 <- getWord32le -- 1: Number of records? Matches first word in block index
   mystery3 <- getWord16le -- 0
 
+  -- let (RecordInfo fs) = recordInfo
+  -- f1 <- getValue $ fs !! 0
+  -- error $ show f1
+  -- bs <- getRemainingLazyByteString
+  -- error $ show bs
+
   V.replicateM (fromIntegral mystery2) $ (getRecord recordInfo)
+
+  -- headend_no <- getValue $ Field "headend_no" FTInt32 Nothing Nothing
+  -- hh_no <- getValue $ Field "hh_no" FTInt32 Nothing Nothing
+  -- hashed_id <- getValue $ Field "hashed_id" FTVString Nothing Nothing
+  -- error $ show hashed_id
+  -- bs <- getRemainingLazyByteString
+  -- r <- getRecord recordInfo
+
+  -- V.replicateM (fromIntegral mystery2) $ (getRecord recordInfo)
 -- --  error $ show [ show mystery1, show mystery2, show mystery3 ]
 
 --   x <- getRecord recordInfo
@@ -305,9 +320,11 @@ instance Binary CalgaryFile where
 
 getCalgaryBlockIndex :: Get CalgaryBlockIndex
 getCalgaryBlockIndex = do
-      mystery1 <- getWord64le
-      indices <- V.fromList <$> untilM' getWord64le isEmpty
-      return $ CalgaryBlockIndex $ V.map fromIntegral indices
+  let getOneIndex = do
+        mystery1 <- getWord64le
+        getWord64le
+  indices <- V.fromList <$> untilM' getOneIndex isEmpty
+  return $ CalgaryBlockIndex $ V.map fromIntegral indices
 
 documentToTextWithoutXMLHeader :: Document -> T.Text
 documentToTextWithoutXMLHeader document =
@@ -576,13 +593,13 @@ instance Binary CalgaryHeader where
       creationDate  <- posixSecondsToUTCTime <$> fromIntegral <$> getWord32le
       indexPosition <- getWord32le
       mystery1      <- getWord32le
-      numRecords    <- getWord32le
+      numBlocks     <- getWord32le
       mystery2      <- getWord32le
       mystery3      <- getWord32le
       mystery4      <- getWord32le
       mystery5      <- getWord32le
       mystery6      <- getWord64le
-      numBlocks     <- getWord32le
+      numRecords    <- getWord32le
       reserved      <- BSL.toStrict <$> getRemainingLazyByteString
       return CalgaryHeader {
                    _calgaryHeaderDescription = description,

@@ -10,6 +10,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Data.Conduit
 import Data.Conduit.Binary
+import qualified Data.Conduit.Combinators as CC
 import Data.Monoid
 import System.Console.GetOpt
 import System.Environment
@@ -17,7 +18,9 @@ import System.IO
 
 data Settings = Settings {
       _settingFilename :: String,
-      _settingMetadata :: Bool
+      _settingMetadata :: Bool,
+      _settingNumBlocks  :: Maybe Int,
+      _settingNumRecords :: Maybe Int
     } deriving (Eq, Show)
 
 makeLenses ''Settings
@@ -26,7 +29,10 @@ options :: [OptDescr (Settings -> Settings)]
 options =
   let set setting = \o -> (& setting .~ Just (read o))
   in [
-   Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump the file's metadata"
+   Option ['m'] ["dump-metadata"] (NoArg (& settingMetadata .~ True)) "Dump the file's metadata",
+   Option ['b'] ["num-blocks"] (ReqArg (set settingNumBlocks) "Number of blocks") "Only output the given number of blocks",
+   Option ['r'] ["num-records"] (ReqArg (set settingNumRecords) "Number of records") "Only output the given number of records, per block"
+
   ]
 
 parseOptions :: [String] -> IO ([Settings -> Settings])
@@ -50,7 +56,9 @@ getSettings = do
 defaultSettings :: Settings
 defaultSettings = Settings {
                     _settingFilename = error "defaultSettings: Filename empty",
-                    _settingMetadata = False
+                    _settingMetadata = False,
+                    _settingNumBlocks = Nothing,
+                    _settingNumRecords = Nothing
                   }
 
 printHeader :: CalgaryHeader -> IO ()
@@ -69,6 +77,11 @@ printHeader header = do
   T.putStrLn $ ("  Mystery6: " <>) $ T.pack $ show $ header ^. calgaryHeaderMystery6
   T.putStrLn $ ("  Number of Blocks: " <>) $ T.pack $ show $ header ^. calgaryHeaderNumBlocks
 
+getRecordLimiter :: (MonadThrow m) => Settings -> Conduit Record m Record
+getRecordLimiter settings = case settings ^. settingNumRecords of
+                              Just n  -> CC.take n
+                              Nothing -> CC.map id
+
 runCydb2Csv :: Settings -> IO ()
 runCydb2Csv settings = do
   let filename = settings ^. settingFilename
@@ -76,8 +89,10 @@ runCydb2Csv settings = do
   let calgaryRecordInfo = calgaryFile ^. calgaryFileRecordInfo
       unpackRecordInfo (CalgaryRecordInfo x) = x
       recordInfo = unpackRecordInfo calgaryRecordInfo
+
   runResourceT $
     sourceCalgaryFileRecords filename $=
+    getRecordLimiter settings =$=
     record2csv recordInfo =$=
     csv2bytes $$
     sinkHandle stdout
@@ -87,6 +102,8 @@ runMetadata settings = do
   let filename = settings ^. settingFilename
   calgaryFile <- readCalgaryFileNoRecords filename
   printHeader $ calgaryFile ^. calgaryFileHeader
+  let (CalgaryRecordInfo recordInfo) = calgaryFile ^. calgaryFileRecordInfo
+  printRecordInfo recordInfo
 
 cydb2csvMain :: IO ()
 cydb2csvMain = do

@@ -51,7 +51,7 @@ executable cydb2csv
   build-depends:
     base == 4.*,
     yxdb-utils
-  ghc-prof-options: -O2 -prof-auto
+  ghc-prof-options: -O2 -fprof-auto
 --  ghc-options: -threaded -auto-all -rtsopts -static
 --  ld-options: -Wl,-Bdynamic -lc -static -pthread
 
