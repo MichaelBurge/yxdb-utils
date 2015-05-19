@@ -148,7 +148,7 @@ sourceCalgaryBlock :: (MonadResource m) => FilePath -> CalgaryRecordInfo -> Bloc
 sourceCalgaryBlock filepath recordInfo (from, to) = do
   let numBytes = fromIntegral $ to - from
   rawBlock <- BSL.fromStrict <$> readRange filepath (Just from) (Just numBytes)
-  let block = runGet (label ("yieldBlock: " ++ show (from, numBytes)) $ getOneBlock recordInfo) rawBlock
+  let block = runGet (label ("yieldBlock: " ++ show (from, numBytes)) $ getOneBlockCalgaryRecords recordInfo) rawBlock
   yield block
 
 sourceCalgaryBlocks :: (MonadResource m) => FilePath -> BlockRanges -> CalgaryRecordInfo -> Source m (V.Vector Record)

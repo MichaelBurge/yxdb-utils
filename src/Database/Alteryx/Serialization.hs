@@ -10,6 +10,7 @@ module Database.Alteryx.Serialization
       getCalgaryRecords,
       getCalgaryBlockIndex,
       getOneBlock,
+      getOneBlockCalgaryRecords,
       getRecord,
       getValue,
       putRecord,
@@ -281,14 +282,18 @@ getCalgaryRecords (CalgaryRecordInfo recordInfo) = do
 --              show remainder
 --             ]
 --  -- error $ show [ mystery1, byte, byteNul, mystery2, short, shortNul, remainder ]
-getOneBlock :: CalgaryRecordInfo -> Get (V.Vector Record)
+getOneBlock :: CalgaryRecordInfo -> Get (Maybe Block)
 getOneBlock recordInfo = do
   blockSize <- getWord16le
   block <- getByteString $ fromIntegral blockSize
   let decompressed = decompressByteStringFixed 100000 block
 
-  let records = runGet (getCalgaryRecords recordInfo ) $
-                 BSL.fromStrict $ case decompressed of Just x  -> x
+  return $ Block <$> BSL.fromStrict <$> decompressed
+
+getOneBlockCalgaryRecords :: CalgaryRecordInfo -> Get (V.Vector Record)
+getOneBlockCalgaryRecords recordInfo = do
+  (Just (Block block)) <- getOneBlock recordInfo
+  let records = runGet (getCalgaryRecords recordInfo ) block
   return records
 
 instance Binary CalgaryFile where
@@ -301,7 +306,7 @@ instance Binary CalgaryFile where
       let readAllBlocks remainingRecords = do
             if remainingRecords > 0
               then do
-                records <- getOneBlock fRecordInfo
+                records <- getOneBlockCalgaryRecords fRecordInfo
                 let newRecords = remainingRecords - V.length records
                 (records :) <$> readAllBlocks newRecords
               else return []
@@ -317,6 +322,61 @@ instance Binary CalgaryFile where
                    _calgaryFileIndex = blockIndex
                  }
       error $ show result
+
+getString :: Get CalgaryIndexFile
+getString = do
+  fHeader <- isolate (fromIntegral calgaryHeaderSize) get :: Get CalgaryHeader
+  mystery1 <- getWord16le -- 121: Index to vardata?
+  mystery2 <- getWord16le -- 1: Number of records?
+  mystery3 <- getWord16le -- 32769 = -1
+  mystery4 <- getWord16le -- 512
+  mystery5 <- getWord16le -- 1
+  mystery6 <- getWord16le -- 32776 = 32768 + 8 = -8
+  mystery7 <- getWord16le
+  mystery8 <- getWord8 -- 0
+  value <- getLazyByteStringNul
+  mystery9 <- getWord16le -- 32769 = -1
+  mystery10 <- getWord16le -- 3104
+  --      mystery9 <- getWord16le
+  replicateM_ 31 $ do
+              mystery10 <- getWord16le
+              mystery11 <- getWord8 -- 32
+              return ()
+  mystery12 <- getWord16le -- 1: Number of values?
+  mystery13 <- getWord8 -- 0
+  mystery14 <- getWord16le -- 7: Length of platano?
+  value2 <- getByteString $ fromIntegral mystery14
+  mystery15 <- getWord64le
+  error $ show mystery15 -- 8192: Index of first block?
+
+
+instance Binary CalgaryIndexFile where
+    put _ = error "CalgaryIndexFile: put undefined"
+    get = do
+      fHeader <- isolate (fromIntegral calgaryHeaderSize) get :: Get CalgaryHeader
+      mystery1 <- getWord16le -- 121: Index to vardata?
+      mystery2 <- getWord16le -- 1: Number of records?
+      mystery3 <- getWord16le -- 32769 = -1
+      mystery4 <- getWord16le -- 512
+      mystery5 <- getWord16le -- 1
+      mystery6 <- getWord16le -- 32776 = 32768 + 8 = -8
+      mystery7 <- getWord16le
+      mystery8 <- getWord8 -- 0
+      value <- getLazyByteStringNul
+      mystery9 <- getWord16le -- 32769 = -1
+      mystery10 <- getWord16le -- 3104
+--      mystery9 <- getWord16le
+      replicateM_ 31 $ do
+            mystery10 <- getWord16le
+            mystery11 <- getWord8 -- 32
+            return ()
+      mystery12 <- getWord16le -- 1: Number of values?
+      mystery13 <- getWord8 -- 0
+      mystery14 <- getWord16le -- 7: Length of platano?
+      value2 <- getByteString $ fromIntegral mystery14
+      mystery15 <- getWord64le
+      error $ show mystery15 -- 8192: Index of first block?
+
 
 getCalgaryBlockIndex :: Get CalgaryBlockIndex
 getCalgaryBlockIndex = do

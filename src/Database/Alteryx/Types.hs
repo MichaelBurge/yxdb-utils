@@ -36,6 +36,10 @@ data CalgaryFile = CalgaryFile {
       _calgaryFileIndex      :: CalgaryBlockIndex
     } deriving (Eq, Show)
 
+data CalgaryIndexFile = CalgaryIndexFile {
+      _calgaryIndexHeader :: CalgaryHeader
+    } deriving (Eq, Show)
+
 data Header = Header {
       _description         :: Text,
       _fileId              :: Word32,
