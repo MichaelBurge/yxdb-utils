@@ -52,8 +52,8 @@ executable cydb2csv
     base == 4.*,
     yxdb-utils
   ghc-prof-options: -O2 -fprof-auto
---  ghc-options: -threaded -auto-all -rtsopts -static
---  ld-options: -Wl,-Bdynamic -lc -static -pthread
+  ghc-options: -threaded -auto-all -rtsopts -static
+  ld-options: -static -pthread
 
 executable csv2yxdb
   hs-source-dirs: bin-src
@@ -62,8 +62,8 @@ executable csv2yxdb
     base == 4.*,
     yxdb-utils
   ghc-prof-options: -O2 -fprof-auto
---  ghc-options: -threaded -auto-all -rtsopts -static
---  ld-options: -Wl,-Bdynamic -lc -static -pthread
+  ghc-options: -threaded -auto-all -rtsopts -static
+  ld-options: -static -pthread
 
 executable yxdb2csv
   hs-source-dirs: bin-src
@@ -72,8 +72,8 @@ executable yxdb2csv
     base == 4.*,
     yxdb-utils
   ghc-prof-options: -O2 -fprof-auto
---  ghc-options: -threaded -auto-all -rtsopts -static
---  ld-options: -Wl,-Bdynamic -lc -static -pthread
+  ghc-options: -threaded -auto-all -rtsopts -static
+  ld-options: -static -pthread
 
 library
   hs-source-dirs: src
@@ -101,12 +101,13 @@ library
     binary >0.7.2,
     binary-conduit,
     blaze-builder,
-    bytestring,
+    bytestring >= 0.10.2.0,
     conduit,
     conduit-combinators,
     conduit-extra,
     containers,
     csv-conduit,
+    bytestring-builder,
     Decimal,
     directory,
     either,
@@ -153,12 +154,13 @@ test-suite yxdb-tests
     binary,
     binary-conduit,
     blaze-builder,
-    bytestring,
+    bytestring >= 0.10.2.0,
     conduit,
     conduit-combinators,
     conduit-extra,
     containers,
     csv-conduit,
+    bytestring-builder,
     directory,
     either,
     exceptions,
